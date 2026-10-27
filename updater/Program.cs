@@ -156,7 +156,13 @@ namespace TfgUpdater
                 var m = await Updater.FetchManifest();
                 var u = new Updater(dir, this);
                 string forge = u.FindForge();
-                if (forge == null) Log("Не вижу Forge 1.20.1 у этой игры. Поставьте Forge " + (m.Forge ?? "1.20.1") + " в своём лаунчере - без него моды не загрузятся.");
+                if (forge == null && u.IsPrism()) Log("В Prism добавьте к этой сборке Forge " + (m.Forge ?? "1.20.1") + " (Изменить → Версия → Установить Forge).");
+                else if (forge == null && m.Forge != null)
+                {
+                    // нет Forge - ставим сами официальным установщиком
+                    try { await Task.Run(() => u.InstallForge(m.Forge, stop.Token)); }
+                    catch (Exception ex) when (!(ex is OperationCanceledException)) { Log("Forge не встал: " + ex.Message + ". Поставьте Forge " + m.Forge + " в своём лаунчере."); }
+                }
                 else if (m.Forge != null && forge != m.Forge) Log("У вас Forge " + forge + ", сборка сделана на " + m.Forge + ". Обычно это не мешает; при сбоях поставьте " + m.Forge + ".");
                 if (m.UpdaterVersion != null && string.CompareOrdinal(m.UpdaterVersion, Program.Version) > 0)
                     Log("Есть новая версия этой программы: " + m.UpdaterUrl);

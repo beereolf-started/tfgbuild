@@ -144,23 +144,32 @@ def main():
         full = os.path.join(a.source, p)
         name = os.path.basename(p)
         url = mr.get(sums[p]) if p in binaries else None
+        sha, size = sums[p], os.path.getsize(full)
         if not url and name in sources:
-            url = sources[name]
+            # официальная страница: строка - ссылка на тот же файл; словарь - та же версия другой сборки
+            # (свои url, sha1, size: игроку ставится официальный файл)
+            src = sources[name]
+            if isinstance(src, dict):
+                url, sha, size = src["url"], src["sha1"], src["size"]
+            else:
+                url = src
         if not url and p.endswith(".jar"):
             lic = jar_license(full)
             if match(name, OWN) or OPEN_LICENSE.search(lic):
                 hosted.add(p)
             else:
                 missing.append(f"{p}  ({lic or 'лицензия не указана'})")
+                files.append({"path": p, "sha1": sha, "size": size, "url": None, "mode": "keep"})   # не качать и не убирать
                 continue
         elif not url and p.endswith(".zip") and p.startswith(("resourcepacks/", "tacz/")):
             missing.append(f"{p}  (ресурспак/пакет не найден на Modrinth)")
+            files.append({"path": p, "sha1": sha, "size": size, "url": None, "mode": "keep"})
             continue
         elif not url:
             hosted.add(p)
         if p in hosted:
             url = raw + urllib.parse.quote(p)
-        files.append({"path": p, "sha1": sums[p], "size": os.path.getsize(full), "url": url,
+        files.append({"path": p, "sha1": sha, "size": size, "url": url,
                       "mode": "merge" if match(p, MERGE) else "force"})
 
     if missing:
@@ -203,7 +212,7 @@ def main():
         json.dump(manifest, f, ensure_ascii=False, indent=1)
         f.write("\n")
     total = sum(x["size"] for x in files)
-    print(f"файлов {len(files)} ({total / 1048576:.0f} МБ): с Modrinth {sum(1 for x in files if 'cdn.modrinth.com' in x['url'])}, "
+    print(f"файлов {len(files)} ({total / 1048576:.0f} МБ): с Modrinth {sum(1 for x in files if 'cdn.modrinth.com' in (x['url'] or ''))}, "
           f"из репозитория {len(hosted)}, по ссылкам {sum(1 for x in files if os.path.basename(x['path']) in sources)}; "
           f"нет источника {len(missing)}; Forge {manifest['forge']}")
 

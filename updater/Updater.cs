@@ -203,6 +203,83 @@ namespace TfgUpdater
             return null;
         }
 
+        /// <summary>Сборка Prism / MultiMC: Forge там ставится в самом лаунчере.</summary>
+        public bool IsPrism()
+        {
+            var parent = Directory.GetParent(game);
+            return parent != null && File.Exists(System.IO.Path.Combine(parent.FullName, "mmc-pack.json"));
+        }
+
+        /// <summary>
+        /// Поставить Forge официальным установщиком (maven.minecraftforge.net) в папку игры - так же, как его
+        /// ставит сам игрок: установщик сам скачивает Minecraft 1.20.1 и библиотеки. Java - та, что лежит у
+        /// лаунчера (TLauncher, официальный), или из системы.
+        /// </summary>
+        public async Task InstallForge(string version, CancellationToken stop)
+        {
+            string java = FindJava();
+            if (java == null) throw new IOException("не нашёл Java 17 - поставьте Forge " + version + " в своём лаунчере");
+            string profiles = System.IO.Path.Combine(game, "launcher_profiles.json");
+            if (!File.Exists(profiles)) File.WriteAllText(profiles, "{\"profiles\":{}}", new UTF8Encoding(false));    // установщик без него не ставит
+            string jar = System.IO.Path.Combine(home, "forge-installer.jar");
+            Directory.CreateDirectory(home);
+            string url = "https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-" + version + "/forge-1.20.1-" + version + "-installer.jar";
+            report.Log("Скачиваю установщик Forge " + version + "...");
+            using (var resp = await Http.GetAsync(url, stop))
+            {
+                resp.EnsureSuccessStatusCode();
+                File.WriteAllBytes(jar, await resp.Content.ReadAsByteArrayAsync());
+            }
+            report.Log("Ставлю Forge (скачает Minecraft 1.20.1 и библиотеки, пару минут)...");
+            var psi = new ProcessStartInfo(java, "-jar \"" + jar + "\" --installClient \"" + game + "\"")
+            {
+                UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = home
+            };
+            using (var p = Process.Start(psi))
+            {
+                p.ErrorDataReceived += (s, e) => { };
+                p.BeginErrorReadLine();
+                string line;
+                while ((line = await p.StandardOutput.ReadLineAsync()) != null)
+                    report.Progress(0, 1, "Forge: " + (line.Length > 80 ? line.Substring(0, 80) : line));
+                p.WaitForExit();
+                if (p.ExitCode != 0) throw new IOException("установщик Forge завершился с ошибкой " + p.ExitCode);
+            }
+            try { File.Delete(jar); } catch (Exception) { }
+            report.Log("Forge " + version + " установлен. В лаунчере выберите версию «1.20.1-forge-" + version + "».");
+        }
+
+        /// <summary>Java 17+: у лаунчера рядом с игрой, у официального лаунчера, JAVA_HOME, в системе.</summary>
+        string FindJava()
+        {
+            var roots = new List<string>();
+            for (var d = Directory.GetParent(game); d != null && roots.Count < 3; d = d.Parent) roots.Add(d.FullName);
+            roots.Add(game);
+            string ad = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            roots.Add(System.IO.Path.Combine(ad, ".minecraft", "runtime"));
+            string jh = Environment.GetEnvironmentVariable("JAVA_HOME");
+            if (!string.IsNullOrEmpty(jh)) roots.Add(jh);
+            foreach (string r in roots)
+            {
+                foreach (string sub in new[] { "jre", "runtime", "" })
+                {
+                    string dir = System.IO.Path.Combine(r, sub);
+                    if (!Directory.Exists(dir)) continue;
+                    string found = null;
+                    try
+                    {
+                        // java-runtime-gamma / -delta - Java 17+ лаунчеров; любой другой java.exe - на удачу
+                        found = Directory.EnumerateFiles(dir, "java.exe", sub.Length == 0 ? SearchOption.TopDirectoryOnly : SearchOption.AllDirectories)
+                            .OrderByDescending(f => f.Contains("gamma") || f.Contains("delta")).FirstOrDefault();
+                        if (found == null && sub.Length == 0 && File.Exists(System.IO.Path.Combine(dir, "bin", "java.exe"))) found = System.IO.Path.Combine(dir, "bin", "java.exe");
+                    }
+                    catch (Exception) { }
+                    if (found != null) return found;
+                }
+            }
+            return "java";                                                                      // из PATH, если есть
+        }
+
         // ─── обновление ──────────────────────────────────────────────────────
 
         public sealed class Plan
@@ -223,6 +300,7 @@ namespace TfgUpdater
             {
                 wanted.Add(f.Path);
                 report.Progress(++done, total, "Проверка файлов");
+                if (f.Mode == "keep" || string.IsNullOrEmpty(f.Url)) continue;                // файл сборки без источника - не качать и не убирать
                 string have = Hash(s, f.Path);
                 if (have == f.Sha1) { plan.Same.Add(f); continue; }
                 if (have != null && f.Mode == "merge")
@@ -280,7 +358,7 @@ namespace TfgUpdater
             }
             await DownloadAll(single, s, stop);
 
-            foreach (var f in m.Files) if (Hash(s, f.Path) == f.Sha1) s.Installed[f.Path] = f.Sha1;
+            foreach (var f in m.Files) if (f.Mode != "keep" && Hash(s, f.Path) == f.Sha1) s.Installed[f.Path] = f.Sha1;
             foreach (string rel in plan.Remove) { s.Installed.Remove(rel); s.Cache.Remove(rel); }
             var failed = m.Files.Where(f => f.Mode == "force" && Hash(s, f.Path) != f.Sha1).ToList();
             if (failed.Count == 0) s.Version = m.Version;

@@ -3,7 +3,7 @@
  "name": "TerraFirmaGreg",
  "version": "38.0",
  "tag": "v38.0",
- "created": "2026-10-27T10:28:29Z",
+ "created": "2026-10-27T10:55:34Z",
  "minecraft": "1.20.1",
  "forge": "47.4.20",
  "archive": "https://codeload.github.com/beereolf-started/tfgbuild/zip/refs/tags/v38.0",
@@ -289003,6 +289003,13 @@
    "mode": "force"
   },
   {
+   "path": "mods/AdvancedPeripherals-1.20.1-0.7.46r.jar",
+   "sha1": "4a498b6afd73f43ae3a9bb7591208fe026b36e2c",
+   "size": 889945,
+   "url": "https://cdn.modrinth.com/data/SOw6jD6x/versions/h2HTYvNe/AdvancedPeripherals-1.20.1-0.7.46r.jar",
+   "mode": "force"
+  },
+  {
    "path": "mods/AmbientSounds_FORGE_v6.3.4_mc1.20.1.jar",
    "sha1": "e84e7053c4c3a73c7f608c9da516bb5d393aab60",
    "size": 53428834,
@@ -289057,6 +289064,13 @@
    "size": 115280,
    "url": "https://cdn.modrinth.com/data/xv94TkTM/versions/LH6Bi6Am/Controlling-forge-1.20.1-12.0.2.jar",
    "mode": "force"
+  },
+  {
+   "path": "mods/CosmeticArmours-1.5.3.1-1.20.1-Forge-tfg.jar",
+   "sha1": "a33c625d6ba9cded999454e220f1394f40bef307",
+   "size": 17418726,
+   "url": null,
+   "mode": "keep"
   },
   {
    "path": "mods/CrashAssistant-forge-1.19-1.20.1-1.11.8.jar",
@@ -289161,6 +289175,13 @@
    "sha1": "c7534db3248adfcf39a6158b423dfc9bfc99a378",
    "size": 60550,
    "url": "https://cdn.modrinth.com/data/UhW5uCKw/versions/eoUaDkZf/Glodium-1.20-1.5-forge.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/GoProne-forge-1.20.1-3.1.1.jar",
+   "sha1": "a50de2b05daa2481ca7886e4425b2c66c3946b8c",
+   "size": 228390,
+   "url": "https://edge.forgecdn.net/files/4656/519/GoProne-forge-1.20.1-3.1.1.jar",
    "mode": "force"
   },
   {
@@ -289322,6 +289343,13 @@
    "sha1": "9e50c6affdadae60f4d2cc3d2104100f6acd8410",
    "size": 268182,
    "url": "https://cdn.modrinth.com/data/kepjj2sy/versions/1K45b03D/ShoulderSurfing-Forge-1.20.1-4.22.6.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/SoulBinding1.20.1(Forge)vs1.0.2.jar",
+   "sha1": "b794e39c75a28753900dfe81d97137bc1d7b50d7",
+   "size": 23878,
+   "url": "https://edge.forgecdn.net/files/4928/200/SoulBinding1.20.1%28Forge%29vs1.0.2.jar",
    "mode": "force"
   },
   {
@@ -289619,6 +289647,13 @@
    "mode": "force"
   },
   {
+   "path": "mods/butchery-5.3.1-forge-1.20.1.jar",
+   "sha1": "b59347a5d5eebda5d03c9bef81a6fa134b9625fc",
+   "size": 18498989,
+   "url": null,
+   "mode": "keep"
+  },
+  {
    "path": "mods/carpeted-1.20-1.4.jar",
    "sha1": "5f177a96a08454572723cf31fee9187c6bc1140e",
    "size": 81717,
@@ -289766,6 +289801,13 @@
    "mode": "force"
   },
   {
+   "path": "mods/craftingtweaks-forge-1.20.1-18.2.8.jar",
+   "sha1": "1c93d31216aa53e53e97f4e24adb899673accb52",
+   "size": 231043,
+   "url": "https://edge.forgecdn.net/files/7454/498/craftingtweaks-forge-1.20.1-18.2.8.jar",
+   "mode": "force"
+  },
+  {
    "path": "mods/crashexploitfixer-forge-1.1.0+1.20.1.jar",
    "sha1": "5dec3209e6dbb6c4fa06fb544e797608a1d58014",
    "size": 688719,
@@ -289847,6 +289889,13 @@
    "sha1": "452175b95ad3db6ff58bb8968f6bf7a9d1e0f480",
    "size": 398066,
    "url": "https://cdn.modrinth.com/data/vvuO3ImH/versions/IPQlZkz1/curios-forge-5.14.1%2B1.20.1.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/deafission-1.20.1-0.16.0.jar",
+   "sha1": "80083ceeeeedd6c591ce63ee5c2c4891e431fe4a",
+   "size": 420190,
+   "url": "https://edge.forgecdn.net/files/7633/771/deafission-1.20.1-0.16.0.jar",
    "mode": "force"
   },
   {
@@ -290015,6 +290064,76 @@
    "sha1": "ffcf6207d71ba069a8baf18f6ac4ee8668376490",
    "size": 5630,
    "url": "https://cdn.modrinth.com/data/KSyWOxT5/versions/tgbHZ6aV/flickerfix-1.20.1-4.0.1.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/ftb-chunks-forge-2001.3.7.jar",
+   "sha1": "ad905a6efcd0569bd8f4cc8e38889671b4bfc6a9",
+   "size": 1159090,
+   "url": "https://edge.forgecdn.net/files/7880/858/ftb-chunks-forge-2001.3.7.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/ftb-essentials-forge-2001.2.4.jar",
+   "sha1": "4f898578e3cc321397dbc59a0c44e2927000bd32",
+   "size": 157732,
+   "url": "https://edge.forgecdn.net/files/7609/948/ftb-essentials-forge-2001.2.4.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/ftb-filter-system-forge-20.0.1.jar",
+   "sha1": "812de9759fe87cb405e14cbb0fe5b72a7ee11f42",
+   "size": 197884,
+   "url": "https://edge.forgecdn.net/files/6466/153/ftb-filter-system-forge-20.0.1.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/ftb-library-forge-2001.2.12.jar",
+   "sha1": "7f36ec4af42ad1d69872c58022e93a9d1b9c82b7",
+   "size": 780523,
+   "url": null,
+   "mode": "keep"
+  },
+  {
+   "path": "mods/ftb-quests-forge-2001.4.21.jar",
+   "sha1": "928d287c016d4032d80870d9d3c5503e1ec85c21",
+   "size": 1254018,
+   "url": "https://edge.forgecdn.net/files/7909/594/ftb-quests-forge-2001.4.21.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/ftb-ranks-forge-2001.1.7.jar",
+   "sha1": "1ef101b4c5991cc239d9b56a95500e3b404228f7",
+   "size": 87362,
+   "url": "https://edge.forgecdn.net/files/6522/73/ftb-ranks-forge-2001.1.7.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/ftb-teams-forge-2001.3.2.jar",
+   "sha1": "c49023f5d471aa1ba7fc624d2565fe9e82b7117e",
+   "size": 252579,
+   "url": "https://edge.forgecdn.net/files/7499/810/ftb-teams-forge-2001.3.2.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/ftb-xmod-compat-forge-2.1.3.jar",
+   "sha1": "0584f628d2bc6a612d79dee368324357ebae1423",
+   "size": 129725,
+   "url": "https://edge.forgecdn.net/files/6402/486/ftb-xmod-compat-forge-2.1.3.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/ftbbackups2-forge-1.20-1.0.23.jar",
+   "sha1": "4b100de40338247a3fbf4d1fd1846257c5338189",
+   "size": 1954591,
+   "url": "https://edge.forgecdn.net/files/4834/403/ftbbackups2-forge-1.20-1.0.23.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/ftbxaerocompat-forge-1.1.3.jar",
+   "sha1": "8a3c74b6a5e285ec755097a76a97a469f2490726",
+   "size": 737596,
+   "url": "https://edge.forgecdn.net/files/7655/63/ftbxaerocompat-forge-1.1.3.jar",
    "mode": "force"
   },
   {
@@ -290585,11 +290704,25 @@
    "mode": "force"
   },
   {
+   "path": "mods/tfcchannelcasting-0.2.3-beta.jar",
+   "sha1": "346a53a23f069d8f9b16f14ecef3b9ab247d0e49",
+   "size": 201539,
+   "url": null,
+   "mode": "keep"
+  },
+  {
    "path": "mods/tfcgenviewer-1.20.1-1.5.1.jar",
    "sha1": "208e780e3f9fc4cbee1de4222d72408162b44a63",
    "size": 392578,
    "url": "https://cdn.modrinth.com/data/yp9Ot3YC/versions/2hMb8aJ5/tfcgenviewer-1.20.1-1.5.1.jar",
    "mode": "force"
+  },
+  {
+   "path": "mods/tfcgroomer-1.20.1-0.2.4.jar",
+   "sha1": "d675275100ba88b532775a2373ada6a280348a41",
+   "size": 153636,
+   "url": null,
+   "mode": "keep"
   },
   {
    "path": "mods/tfclunchbox-1.20.1-1.0.0.29.jar",
@@ -290606,10 +290739,24 @@
    "mode": "force"
   },
   {
+   "path": "mods/tfcstructuremodc-0.0.4.jar",
+   "sha1": "30cdc7fb5e39545feaeb5f09b6fb4ccaf09aec14",
+   "size": 117927,
+   "url": null,
+   "mode": "keep"
+  },
+  {
    "path": "mods/tfgui-0.1.0.jar",
    "sha1": "206a3e26c14f88786746240e26e07f938b59b8c5",
    "size": 12113177,
    "url": "https://raw.githubusercontent.com/beereolf-started/tfgbuild/v38.0/pack/mods/tfgui-0.1.0.jar",
+   "mode": "force"
+  },
+  {
+   "path": "mods/timeout_fixes-1.20.1-1.0.0.jar",
+   "sha1": "1748e7fecde151d20eb96d62eecd7579858bb793",
+   "size": 10209,
+   "url": "https://edge.forgecdn.net/files/4844/272/timeout_fixes-1.20.1-1.0.0.jar",
    "mode": "force"
   },
   {
@@ -290732,6 +290879,13 @@
    "mode": "force"
   },
   {
+   "path": "resourcepacks/HardcoreHeartsTFC.zip",
+   "sha1": "91cbc947ab794df7cade4d69a9077fea5fe4276d",
+   "size": 68059,
+   "url": null,
+   "mode": "keep"
+  },
+  {
    "path": "resourcepacks/Icon Xaero's 1.22.zip",
    "sha1": "a14777ad5dac4fd37c4429c29165c87f6270102e",
    "size": 18866675,
@@ -290739,11 +290893,32 @@
    "mode": "force"
   },
   {
+   "path": "resourcepacks/Perfected Anvil Helper.zip",
+   "sha1": "67ce571b82410f62b776cd20b6a026802033217d",
+   "size": 20640,
+   "url": null,
+   "mode": "keep"
+  },
+  {
    "path": "resourcepacks/TFC_Ambiental_Refreshed_1.18-1.21.1.zip",
    "sha1": "73561b96df5b4ead380bdca8f01db3ae11f63daf",
    "size": 458406,
    "url": "https://cdn.modrinth.com/data/RVuHApuv/versions/SAxnWzwK/TFC_Ambiental_Refreshed_1.18-1.21.1.zip",
    "mode": "force"
+  },
+  {
+   "path": "resourcepacks/TerraFirmaCraft_New_Animals.zip",
+   "sha1": "c3318956eff6b4c9e49e81b89ff2b49eaf16d4dc",
+   "size": 65591,
+   "url": null,
+   "mode": "keep"
+  },
+  {
+   "path": "resourcepacks/Vexxed_Visuals_TFC_v1.2.7.1.zip",
+   "sha1": "d0ff9540d2980b59664feacfa451b3f928416fcf",
+   "size": 29693735,
+   "url": null,
+   "mode": "keep"
   },
   {
    "path": "resourcepacks/[1.20.1_ver_0.05.1]_Improved_AE_2_32x.zip",
@@ -290774,11 +290949,46 @@
    "mode": "force"
   },
   {
+   "path": "resourcepacks/midnight-ae2-30e7823.zip",
+   "sha1": "e6f66daef5e7c1521e8c43e082766e2287dbcbe4",
+   "size": 5653589,
+   "url": null,
+   "mode": "keep"
+  },
+  {
+   "path": "resourcepacks/winslow_skin.zip",
+   "sha1": "a48a66e57de3f4b3c766711573895745d31bbda1",
+   "size": 40400,
+   "url": null,
+   "mode": "keep"
+  },
+  {
+   "path": "tacz/Applied Armorer-v1.1.4.1.TFG-for114+.zip",
+   "sha1": "2086e71d9e618aa82743f62d2dfce77442888137",
+   "size": 8782909,
+   "url": null,
+   "mode": "keep"
+  },
+  {
+   "path": "tacz/Create Armorer-v1.2.0-for115.zip",
+   "sha1": "a49b95479cecb5b4fa56c4da5467c17ebe1fb4c0",
+   "size": 7107512,
+   "url": null,
+   "mode": "keep"
+  },
+  {
    "path": "tacz/tacz-pre.toml",
    "sha1": "33b2fe2158e6a3a447fe3098b1b6d3798b12219f",
    "size": 222,
    "url": "https://raw.githubusercontent.com/beereolf-started/tfgbuild/v38.0/pack/tacz/tacz-pre.toml",
    "mode": "merge"
+  },
+  {
+   "path": "tacz/ulv_guns.zip",
+   "sha1": "1ad68b790a3c412f4e1d44eecb98d43628cadb91",
+   "size": 108945,
+   "url": null,
+   "mode": "keep"
   }
  ]
 }
