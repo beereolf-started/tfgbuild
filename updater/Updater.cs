@@ -299,7 +299,7 @@ namespace TfgUpdater
             foreach (var f in m.Files)
             {
                 wanted.Add(f.Path);
-                report.Progress(++done, total, "Проверка файлов");
+                report.Progress(++done, total, "Сверка по контрольным суммам: " + done + " из " + total);
                 if (f.Mode == "keep" || string.IsNullOrEmpty(f.Url)) continue;                // файл сборки без источника - не качать и не убирать
                 string have = Hash(s, f.Path);
                 if (have == f.Sha1) { plan.Same.Add(f); continue; }
@@ -334,6 +334,7 @@ namespace TfgUpdater
             if (Process.GetProcessesByName("javaw").Length > 0 || Process.GetProcessesByName("java").Length > 0)
                 report.Log("Похоже, запущена игра или лаунчер на Java. Если игра открыта - закройте её, иначе моды не заменить.");
             var s = LoadState();
+            report.Log("Сверяю папку игры со сборкой " + m.Version + ": " + m.Files.Count + " файлов по контрольным суммам...");
             var plan = MakePlan(m, s);
             SaveState(s);                                                                  // суммы уже посчитаны - не терять
             long bytes = plan.Download.Sum(f => f.Size);
@@ -443,6 +444,10 @@ namespace TfgUpdater
         {
             if (files.Count == 0) return;
             long total = files.Sum(f => f.Size), done = 0;
+            int left = files.Count;
+            // по каждому файлу - в журнал (при первой установке файлов десятки тысяч - тогда каждый сотый)
+            bool each = files.Count <= 300;
+            report.Log(string.Format("Скачиваю {0} файлов, {1:F1} МБ. Каждый сверяется по контрольной сумме SHA-1.", files.Count, total / 1048576.0));
             var queue = new ConcurrentQueue<FileEntry>(files.OrderByDescending(f => f.Size));
             var errors = new ConcurrentBag<string>();
             var workers = Enumerable.Range(0, Parallel).Select(_ => Task.Run(async () =>
@@ -451,6 +456,7 @@ namespace TfgUpdater
                 while (queue.TryDequeue(out f))
                 {
                     stop.ThrowIfCancellationRequested();
+                    if (each) report.Log(string.Format("Качаю {0} ({1:F1} МБ) с {2}", f.Path, f.Size / 1048576.0, Source(f.Url)));
                     for (int attempt = 1; ; attempt++)
                     {
                         try
@@ -465,6 +471,11 @@ namespace TfgUpdater
                                     await src.CopyToAsync(dst, 1 << 16, stop);
                             }
                             lock (s) Place(f, part, s);
+                            int l = Interlocked.Decrement(ref left);
+                            long d = Interlocked.Add(ref done, f.Size);
+                            if (each || l % 100 == 0)
+                                report.Log(string.Format("  ✓ {0} ({1:F1} МБ, {2}) - сумма сошлась. Осталось: {3} файлов, {4:F1} МБ",
+                                    f.Path, f.Size / 1048576.0, Source(f.Url), l, (total - d) / 1048576.0));
                             break;
                         }
                         catch (Exception ex) when (!(ex is OperationCanceledException) && attempt < 3)
@@ -477,11 +488,20 @@ namespace TfgUpdater
                             break;
                         }
                     }
-                    report.Progress(Interlocked.Add(ref done, f.Size), total, "Скачивание: " + System.IO.Path.GetFileName(f.Path));
+                    long now = Interlocked.Read(ref done);
+                    report.Progress(now, total, string.Format("Скачано {0:F1} из {1:F1} МБ, осталось файлов: {2}", now / 1048576.0, total / 1048576.0, Volatile.Read(ref left)));
                 }
             })).ToArray();
             await Task.WhenAll(workers);
             foreach (string e in errors.Take(10)) report.Log("Ошибка: " + e);
+        }
+
+        static string Source(string url)
+        {
+            if (url.Contains("modrinth")) return "Modrinth";
+            if (url.Contains("forgecdn") || url.Contains("curseforge")) return "CurseForge";
+            if (url.Contains("github")) return "GitHub";
+            return new Uri(url).Host;
         }
 
         /// <summary>Скачанное - на место, только если сумма сошлась (битый файл не ставим).</summary>
