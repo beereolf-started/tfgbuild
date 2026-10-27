@@ -1,4 +1,4 @@
-// priority: -12
+// priority: -14
 "use strict";
 /**
  * СПУТНИКИ И ЖИТЕЛИ БАЗЫ (этап 7 плана NPC: Downloads/TFG-NPC-план.md).
@@ -320,10 +320,22 @@ function cpLostTick(server) {
     })
 }
 
+var CP_WARNED = {}
+
+/** Сбой в тике не должен ронять сервер, но и глотать его молча нельзя: пишем раз в минуту на место сбоя. */
+function cpTickFail(where, err, tick) {
+    if (CP_WARNED[where] && tick - CP_WARNED[where] < 1200) return
+    CP_WARNED[where] = tick
+    try {
+        if (global.tfgLogError) global.tfgLogError("tfg companions", where, err)
+        else console.error("[tfg companions/ОШИБКА] " + where + ": " + err)
+    } catch (e) { }
+}
+
 ServerEvents.tick(event => {
     var t = event.server.tickCount
-    if (t % 10 === 3) { try { cpFollowTick(event.server) } catch (e) { } }
-    if (t % 200 === 77) { try { cpLostTick(event.server) } catch (e) { } }
+    if (t % 10 === 3) { try { cpFollowTick(event.server) } catch (e) { cpTickFail("ход спутников", e, t) } }
+    if (t % 200 === 77) { try { cpLostTick(event.server) } catch (e) { cpTickFail("потерявшиеся", e, t) } }
 })
 
 // метка спутника - и после перезапуска, и у появившегося заново
