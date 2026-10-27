@@ -86,18 +86,19 @@ namespace TfgUpdater
         readonly ProgressBar bar = new ProgressBar { Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top, Maximum = 1000 };
         readonly TextBox log = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top | AnchorStyles.Bottom };
         /// <summary>Одна кнопка: пока обновляется - ждать, готово - «Играть», сбой - «Повторить».</summary>
-        readonly Button go = new Button { Text = "Обновление...", Enabled = false, Anchor = AnchorStyles.Right | AnchorStyles.Bottom, Width = 140, Height = 34 };
+        readonly Button go = new Button { Text = "Обновление...", Enabled = false, Anchor = AnchorStyles.Right | AnchorStyles.Bottom, Width = 220, Height = 34 };
         static readonly string LauncherFile = Path.Combine(Path.GetDirectoryName(SettingsFile), "launcher.txt");
         CancellationTokenSource stop;
-        bool ready;
+        bool ready, updating, skip;
 
         public MainForm()
         {
-            Text = "TerraFirmaGreg";
+            Text = "Хроники Отмели";
             ClientSize = new Size(620, 400);
             MinimumSize = new Size(480, 300);
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Segoe UI", 9f);
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch (Exception) { }
 
             var label = new Label { Text = "Папка игры (где лежат mods и config):", AutoSize = true, Location = new Point(10, 10) };
             path.SetBounds(10, 30, 510, 23);
@@ -105,13 +106,18 @@ namespace TfgUpdater
             status.SetBounds(10, 62, 600, 20);
             bar.SetBounds(10, 85, 600, 16);
             log.SetBounds(10, 110, 600, 238);
-            go.SetBounds(470, 356, 140, 34);
+            go.SetBounds(390, 356, 220, 34);
             go.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
             Controls.AddRange(new Control[] { label, path, browse, status, bar, log, go });
             AcceptButton = go;
 
             browse.Click += async (s, e) => { if (Browse()) await DoUpdate(); };
-            go.Click += async (s, e) => { if (ready) Play(); else await DoUpdate(); };
+            go.Click += async (s, e) =>
+            {
+                if (ready) Play();
+                else if (updating) { skip = true; stop?.Cancel(); Play(); }        // проверку можно пропустить - сразу в игру
+                else await DoUpdate();
+            };
             // скачал и играй: папку находим сами и сразу обновляем
             Shown += async (s, e) =>
             {
@@ -169,9 +175,11 @@ namespace TfgUpdater
                 go.Enabled = true;
                 return;
             }
-            ready = false;
-            go.Text = "Обновление...";
-            go.Enabled = browse.Enabled = path.Enabled = false;
+            ready = skip = false;
+            updating = true;
+            go.Text = "Пропустить и играть";                              // проверку можно не ждать
+            browse.Enabled = path.Enabled = false;
+            go.Enabled = true;
             stop = new CancellationTokenSource();
             try
             {
@@ -198,6 +206,8 @@ namespace TfgUpdater
             }
             catch (OperationCanceledException)
             {
+                updating = false;
+                if (skip) return;                                                    // уже ушли в игру
                 Log("Остановлено.");
                 go.Text = "Повторить";
             }
@@ -215,8 +225,12 @@ namespace TfgUpdater
             }
             finally
             {
-                go.Enabled = browse.Enabled = path.Enabled = true;
-                go.Focus();
+                updating = false;
+                if (!IsDisposed)
+                {
+                    go.Enabled = browse.Enabled = path.Enabled = true;
+                    go.Focus();
+                }
             }
         }
 
@@ -238,14 +252,135 @@ namespace TfgUpdater
             }
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, args) { WorkingDirectory = Path.GetDirectoryName(exe), UseShellExecute = true });
-                Close();
+                var direct = DirectStart(path.Text.Trim(), exe);
+                var psi = direct ?? new System.Diagnostics.ProcessStartInfo(exe, args) { WorkingDirectory = Path.GetDirectoryName(exe), UseShellExecute = true };
+                System.Diagnostics.Process.Start(psi);
+                if (direct == null) { Close(); return; }
+                // окно лаунчера не показываем, пока он готовит игру; он сам закроется, когда игра стартует
+                Hide();
+                var t = new Thread(() => { HideLauncherWindows(TimeSpan.FromSeconds(90)); BeginInvoke((Action)Close); }) { IsBackground = true };
+                t.Start();
             }
             catch (Exception ex)
             {
                 Log("Не удалось открыть лаунчер: " + ex.Message);
                 try { File.Delete(LauncherFile); } catch (Exception) { }
             }
+        }
+
+        /// <summary>
+        /// Legacy Launcher / TLauncher: сразу его функция запуска игры - ядро лаунчера его же Java и его же параметрами
+        /// (stubLauncher.args + tl.args, как это делает LL.exe) и сверху --version (версия с Forge 1.20.1) --launch
+        /// (запустить игру сразу). Не вышло собрать - null: просто открываем лаунчер.
+        /// </summary>
+        static System.Diagnostics.ProcessStartInfo DirectStart(string game, string launcherExe)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(launcherExe);
+                string java = Path.Combine(dir, "jre", "x64", "bin", "javaw.exe");
+                string boot = Path.Combine(dir, "launcher", "bootstrap.jar");
+                string version = ForgeVersionName(game, dir);
+                if (!File.Exists(java) || !File.Exists(boot) || version == null) return null;
+                // бутстрап дописывает к параметрам tl.args из рабочей папки - тогда ядро получает служебные параметры
+                // бутстрапа и падает; запускаем из пустой папки, все пути - полные
+                string work = Path.Combine(Path.GetTempPath(), "tfgupdater-launch");
+                Directory.CreateDirectory(work);
+                // свои настройки лаунчера на этот запуск (копия его настроек): версия с Forge, сразу запуск, после
+                // старта игры лаунчер закрывается. Настоящие настройки игрока не трогаем
+                string settings = Path.Combine(work, "tl.properties");
+                var props = File.Exists(Path.Combine(dir, "tl.properties"))
+                    ? File.ReadAllLines(Path.Combine(dir, "tl.properties"), Encoding.UTF8).ToList() : new List<string>();
+                foreach (var kv in new Dictionary<string, string> { { "login.version", version }, { "login.auto", "true" }, { "minecraft.onlaunch", "exit" } })
+                {
+                    int i = props.FindIndex(l => l.StartsWith(kv.Key + "=", StringComparison.Ordinal));
+                    if (i >= 0) props[i] = kv.Key + "=" + kv.Value; else props.Add(kv.Key + "=" + kv.Value);
+                }
+                File.WriteAllLines(settings, props, new UTF8Encoding(false));
+                var parts = new List<string>
+                {
+                    "-Dtlauncher.bootstrap.restartExec=" + launcherExe, "-Xmx64M", "-jar", boot,
+                    "--packageMode", "windows", "--targetJar", Path.Combine(dir, "launcher", "launcher.jar"),
+                    "--targetLibFolder", Path.Combine(dir, "launcher", "libraries"),
+                    "--", "--settings", settings, "--version", version, "--launch"
+                };
+                string line = string.Join(" ", parts.Select(Quote));
+                return new System.Diagnostics.ProcessStartInfo(java, line) { WorkingDirectory = work, UseShellExecute = false };
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr p);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+        delegate bool EnumProc(IntPtr h, IntPtr p);
+
+        /// <summary>Процессы Legacy Launcher (его бутстрап и ядро) - по командной строке.</summary>
+        static HashSet<uint> LauncherPids()
+        {
+            var pids = new HashSet<uint>();
+            using (var q = new System.Management.ManagementObjectSearcher("SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name='javaw.exe' OR Name='java.exe'"))
+                foreach (System.Management.ManagementObject o in q.Get())
+                {
+                    string cmd = o["CommandLine"] as string ?? "";
+                    // только сам лаунчер; окно игры (у неё --gameDir) не трогаем ни в коем случае
+                    bool launcher = cmd.Contains(@"launcher\bootstrap.jar") || cmd.Contains(@"launcher\launcher.jar") || cmd.Contains("launcher/launcher.jar");
+                    if (launcher && !cmd.Contains("--gameDir")) pids.Add((uint)o["ProcessId"]);
+                }
+            return pids;
+        }
+
+        /// <summary>
+        /// Прятать окна лаунчера, пока он не закроется сам (запустил игру). Не закрылся за limit - вернуть окна:
+        /// значит, он чего-то ждёт от игрока (вход, ошибка) - пусть будет видно.
+        /// </summary>
+        static void HideLauncherWindows(TimeSpan limit)
+        {
+            var hidden = new List<IntPtr>();
+            var until = DateTime.UtcNow + limit;
+            var pids = new HashSet<uint>();
+            bool seen = false;
+            for (int tick = 0; DateTime.UtcNow < until; tick++)
+            {
+                if (tick % 7 == 0)
+                {
+                    try { pids = LauncherPids(); } catch (Exception) { }
+                    if (pids.Count > 0) seen = true;
+                    else if (seen) return;                                         // лаунчер закрылся - игра запущена
+                }
+                EnumWindows((h, p) =>
+                {
+                    GetWindowThreadProcessId(h, out uint pid);
+                    if (pids.Contains(pid) && IsWindowVisible(h)) { ShowWindow(h, 0); hidden.Add(h); }
+                    return true;
+                }, IntPtr.Zero);
+                Thread.Sleep(150);
+            }
+            foreach (var h in hidden) ShowWindow(h, 5);                            // не дождались - показать
+        }
+
+        static string Quote(string a)
+        {
+            return a.IndexOfAny(new[] { ' ', '"' }) < 0 ? a : "\"" + a.Replace("\"", "\\\"") + "\"";
+        }
+
+        /// <summary>Имя версии с Forge 1.20.1 в папке versions (у игры или у лаунчера): так её зовёт лаунчер.</summary>
+        static string ForgeVersionName(string game, string launcherDir)
+        {
+            foreach (string dir in new[] { Path.Combine(game, "versions"), Path.Combine(launcherDir, "versions") })
+            {
+                if (!Directory.Exists(dir)) continue;
+                foreach (string v in Directory.GetDirectories(dir))
+                {
+                    string json = Path.Combine(v, Path.GetFileName(v) + ".json");
+                    if (File.Exists(json) && File.ReadAllText(json).Contains("net.minecraftforge:forge:1.20.1-")) return Path.GetFileName(v);
+                }
+            }
+            return null;
         }
 
         static string FindLauncher(string game, out string args)

@@ -1,2 +1,3 @@
 __pycache__/
 *.tfgpart
+tools/.hashcache.json

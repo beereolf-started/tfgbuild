@@ -5,10 +5,11 @@ $sdk = (Get-ChildItem 'C:\Program Files\dotnet\sdk' -Directory | Sort-Object Nam
 $csc = Join-Path $sdk 'Roslyn\bincore\csc.dll'
 $fw = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319'
 $refs = 'mscorlib', 'System', 'System.Core', 'System.Drawing', 'System.Windows.Forms', 'System.Net.Http',
-        'System.IO.Compression', 'System.IO.Compression.FileSystem', 'System.Web.Extensions' |
+        'System.IO.Compression', 'System.IO.Compression.FileSystem', 'System.Web.Extensions', 'System.Management' |
         ForEach-Object { "-r:$fw\$_.dll" }
 $out = Join-Path $here 'TfgUpdater.exe'
+# иконка - шлем из Epic Knights
 & dotnet $csc -nologo -noconfig -nostdlib -target:winexe -langversion:7.3 -optimize+ -platform:anycpu `
-    "-out:$out" @refs (Join-Path $here '*.cs')
+    "-win32icon:$(Join-Path $here 'icon.ico')" "-out:$out" @refs (Join-Path $here '*.cs')
 if ($LASTEXITCODE -ne 0) { throw "сборка не удалась" }
 Get-Item $out | Select-Object Name, Length

@@ -88,7 +88,17 @@ def modrinth(hashes):
         body = json.dumps({"hashes": keys[i:i + 500], "algorithm": "sha1"}).encode()
         req = urllib.request.Request("https://api.modrinth.com/v2/version_files", data=body,
                                      headers={"Content-Type": "application/json", "User-Agent": f"{REPO}/publish"})
-        for h, v in json.load(urllib.request.urlopen(req, timeout=120)).items():
+        for attempt in range(6):                       # VPN рвёт соединения - пробуем ещё
+            try:
+                res = json.load(urllib.request.urlopen(req, timeout=120))
+                break
+            except Exception as e:
+                if attempt == 5:
+                    raise
+                print("Modrinth не ответил (" + type(e).__name__ + "), ещё раз...")
+                import time
+                time.sleep(3 * (attempt + 1))
+        for h, v in res.items():
             for f in v["files"]:
                 if f["hashes"].get("sha1") == h:
                     found[h] = f["url"]
@@ -136,7 +146,17 @@ def main():
             sources = json.load(f)
 
     paths = collect(a.source)
-    sums = {p: sha1(os.path.join(a.source, p)) for p in paths}
+    # суммы - из памяти, если размер и время файла не менялись (пересчёт 41 тыс. файлов - минуты)
+    cache_path = os.path.join(ROOT, "tools", ".hashcache.json")
+    cache = json.load(open(cache_path, encoding="utf-8")) if os.path.exists(cache_path) else {}
+    sums = {}
+    for p in paths:
+        st = os.stat(os.path.join(a.source, p))
+        key = f"{st.st_size}|{st.st_mtime_ns}"
+        c = cache.get(p)
+        sums[p] = c[1] if c and c[0] == key else sha1(os.path.join(a.source, p))
+        cache[p] = [key, sums[p]]
+    json.dump(cache, open(cache_path, "w", encoding="utf-8"))
     binaries = [p for p in paths if p.endswith((".jar", ".zip"))]
     mr = modrinth({sums[p] for p in binaries})
 
