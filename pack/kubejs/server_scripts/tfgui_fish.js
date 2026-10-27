@@ -24,6 +24,17 @@ const TFGUI_FISH = {
 // икра - не из каждой рыбы
 const TFGUI_FISH_ROE_CHANCE = 0.25;
 
+// рыбьи кости в мацераторе GregTech - как кость, только мельче (мельница Create и жернов - рецепты мода tfgui)
+ServerEvents.recipes(event => {
+	if (!Platform.isLoaded('tfgui') || !Platform.isLoaded('gtceu')) return;
+	event.recipes.gtceu.macerator('tfgui:fish_bones')
+		.itemInputs('tfgui:fish_bones')
+		.itemOutputs('minecraft:bone_meal')
+		.chancedOutput('minecraft:bone_meal', 5000, 0)
+		.duration(40)
+		.EUt(2);
+});
+
 LootJS.modifiers(event => {
 	Object.keys(TFGUI_FISH).forEach(fish => {
 		const fillet = TFGUI_FISH[fish];
