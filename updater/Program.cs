@@ -20,6 +20,8 @@ namespace TfgUpdater
         {
             // без окна: TfgUpdater.exe --auto "<папка игры>" - обновить и выйти (журнал - .tfgbuild/log.txt)
             if (args.Length == 2 && args[0] == "--auto") return Auto(args[1]);
+            // --plan "<папка игры>": только показать, что бы сделала (ничего не меняет), журнал - в stdout-файл рядом с программой
+            if (args.Length == 2 && args[0] == "--plan") return PlanOnly(args[1]);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
@@ -32,6 +34,28 @@ namespace TfgUpdater
             public FileReport(string file) { this.file = file; }
             public void Log(string text) { lock (this) File.AppendAllText(file, DateTime.Now.ToString("HH:mm:ss ") + text + Environment.NewLine, Encoding.UTF8); }
             public void Progress(long done, long total, string what) { }
+        }
+
+        static int PlanOnly(string game)
+        {
+            var r = new FileReport(Path.Combine(Path.GetTempPath(), "tfgupdater-plan.txt"));
+            try
+            {
+                var m = Updater.FetchManifest().GetAwaiter().GetResult();
+                var u = new Updater(game, r);
+                var plan = u.MakePlan(m, u.LoadState());
+                r.Log("Сборка " + m.Version + ", Forge у игры: " + (u.FindForge() ?? "не найден"));
+                r.Log("скачать " + plan.Download.Count + ", убрать " + plan.Remove.Count + ", сохранить копию " + plan.Backup.Count + ", без изменений " + plan.Same.Count + ", оставлены правки " + plan.KeptUserChanges);
+                foreach (var f in plan.Download.Take(30)) r.Log("  скачать " + f.Path);
+                foreach (var f in plan.Remove.Take(30)) r.Log("  убрать  " + f);
+                foreach (var f in plan.Backup.Take(30)) r.Log("  копия   " + f);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                r.Log("Ошибка: " + ex);
+                return 1;
+            }
         }
 
         static int Auto(string game)
