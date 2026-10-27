@@ -1,0 +1,38 @@
+
+#Render Settings
+[render]
+	#Distance in blocks beyond which ragdolls do not render.
+	#Range: 4.0 ~ 512.0
+	renderDistance = 128.0
+	#When you die, follow your own ragdoll with the camera.
+	enableDeathCamera = true
+	#Distance in blocks within which GeckoLib animated armor renders on ragdolls.
+	#Lower improves performance. Should not exceed renderDistance.
+	#Range: 4.0 ~ 128.0
+	geckolibArmorRenderDistance = 80.0
+	#Distance in blocks within which vanilla armor renders on ragdolls.
+	#Range: 4.0 ~ 512.0
+	armorRenderDistance = 100.0
+	#Armor drawn on a ragdoll in place of modded armor whose texture can't be found.
+	#Leave empty to draw no armor there. Otherwise an armor material name: leather, chainmail,
+	#iron, gold, diamond, netherite, or modid:material for a modded one.
+	missingArmorFallback = ""
+
+#Physics Engine
+[physics]
+	#Physics engine for ragdolls: jolt (default, native and fast) or jbullet (pure Java, slower).
+	#Jolt falls back to jbullet automatically if it can't load. Applies on the next world load.
+	physicsEngine = "jolt"
+	#Extra worker threads Jolt may use for physics. 0 = pick automatically from CPU count.
+	#Ignored by jbullet.
+	#Range: 0 ~ 16
+	physicsSolverThreads = 0
+
+#Debug Options
+[debug]
+	#Render debug boxes around ragdoll physics bodies.
+	debugRenderPhysics = true
+	#Periodically log ragdoll physics performance stats ([Ragdoll Perf]) to the client log.
+	#Useful for profiling; leave off for normal play.
+	logPhysicsPerf = false
+

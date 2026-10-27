@@ -1,0 +1,38 @@
+{
+ "parent": "minecraft:item/generated",
+ "textures": {
+  "layer0": "minecraft:item/written_book"
+ },
+ "overrides": [
+  {
+   "predicate": {
+    "custom_model_data": 1
+   },
+   "model": "tfg_books:item/book_plain"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 2
+   },
+   "model": "tfg_books:item/book_ribbon"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 3
+   },
+   "model": "tfg_books:item/book_gilded"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 4
+   },
+   "model": "tfg_books:item/book_clasp"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 5
+   },
+   "model": "tfg_books:item/book_burnt"
+  }
+ ]
+}

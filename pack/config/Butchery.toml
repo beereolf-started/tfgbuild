@@ -1,0 +1,197 @@
+
+[General]
+	#Sends a message to the player when first joining a world.
+	"Welcome Message" = true
+	#Give the butchers guide on first join.
+	"First Join Book" = false
+	#Show GUI hints when looking at carcasses.
+	"Show Hints (Temporarily Disabled)" = false
+	#Enable to have carcasses drop with ONLY cleavers. Disable to have carcasses drop no matter what kills the mob.
+	"Only Cleavers Drop Carcasses" = true
+	#Instantly bleed carcasses.
+	"Instant Bleeding" = false
+	#Enable organ drops
+	Organs = true
+	#Enable carcass weight (slowness effect when carcasses are in your inventory)
+	"Weighted Carcasses" = true
+	#Enable looting when butchering carcasses
+	"Looting Enchantment" = true
+	#Enable sulfur ore generation
+	"Sulfur Ore Generation" = false
+	#Enable salt generation
+	"Salt Generation" = false
+	#Enables blood puddles dropping when no blood grate is below a carcass.
+	"Blood Puddle" = true
+	#Enable blood spread
+	"Blood Spread" = true
+	#Enable random events caused by breaking magic wishbones.
+	"Magic Wishbone" = true
+	#The chance of receiving a wishbone from a chicken carcass. (Range: 0 - 1)
+	"Wishbone Chance" = 0.25
+
+["Timings (20 = 1 second)"]
+	#The time taken for skin to dry and convert into leather.
+	"Skin Drying Time" = 1800.0
+
+[Multipliers]
+	#Change the amount of leather dropped from a skin rack. (Default: 2)
+	"Skin Rack Yield" = 2.0
+	#Change the amount of salt dropped from the basin, standard yield is 5 salt. (Default: 1) (Max Yield: 64)
+	"Salt Basin Yield" = 1.0
+
+[Mobs]
+	#Enable Axolotl Carcass
+	Axolotl = false
+	#Enable Bat Carcasses
+	"Bat Carcass" = false
+	#Enable Bee Carcasses
+	"Bee Carcass" = false
+	#Enable Brown Mooshroom Carcasses
+	"Brown Mooshroom" = false
+	#Enable Camel Carcasses
+	Camel = false
+	#Enable Cat Carcasses
+	Cat = false
+	#Enable Cave Spider Carcasses
+	"Cave Spider" = false
+	#Enable Chicken Carcasses
+	"Chicken Carcass" = false
+	#Enable Cod Carcasses
+	Cod = false
+	#Enable Cow Carcasses
+	"Cow Carcass" = false
+	#Enable Creeper Carcasses
+	Creeper = false
+	#Enable Dolphin Carcasses
+	"Dolphin Carcass" = false
+	#Enable Donkey Carcasses
+	Donkey = false
+	#Enable Drowned Corpses
+	Drowned = false
+	#Enable Elder Guardian Carcass
+	"Elder Guardian" = false
+	#Enable Evoker Corpses
+	Evoker = false
+	#Enable Ender Dragon Carcass
+	"Ender Dragon" = false
+	#Enable Enderman Corpses
+	Enderman = false
+	#Enable Endermite Carcass
+	Endermite = false
+	#Enable Fox Carcasses
+	Fox = false
+	#Enable Frog Carcass
+	Frog = false
+	#Enable Glow Squid Carcasses
+	"Glow Squid Carcass" = false
+	#Enable Goat Carcasses
+	"Goat Carcass" = false
+	#Enable Guardian Carcasses
+	Guardian = false
+	#Enable Hoglin Carcasses
+	Hoglin = false
+	#Enable Horse Carcasses
+	Horse = false
+	#Enable Husk Corpses
+	Husk = false
+	#Enable Iron Golem Corpses
+	"Iron Golem" = false
+	#Enable Llama Carcass
+	Llama = false
+	#Enable Magma Cube Carcass
+	"Magma Cube" = false
+	#Enable Mule Carcasses
+	Mule = false
+	#Enable Ocelot Carcasses
+	Ocelot = false
+	#Enable Panda Carcasses
+	Panda = false
+	#Enable Pig Carcasses
+	"Pig Carcass" = false
+	#Enable Piglin Corpses
+	Piglin = false
+	#Enable Piglin Brute Corpses
+	"Piglin Brute" = false
+	#Enable Pillager Corpses
+	Pillager = false
+	#Enable Polar Bear Carcass
+	"Polar Bear" = false
+	#Enable Player Corpses
+	Player = false
+	#Enable Pufferfish Carcass
+	Pufferfish = false
+	#Enable Phantom Carcass
+	Phantom = false
+	#Enable Ravager Carcass
+	Ravager = false
+	#Enable Rabbit Carcass
+	Rabbit = false
+	#Enable Red Mooshroom Carcasses
+	"Red Mooshroom" = false
+	#Enable Salmon Carcasses
+	Salmon = false
+	#Enable Sheep Carcasses
+	"Sheep Carcass" = false
+	#Enable Shulker Carcass
+	Shulker = false
+	#Enable Silverfish Carcass
+	Silverfish = false
+	#Enable Skeleton Carcass
+	Skeleton = false
+	#Enable Skeleton Horse Carcass
+	"Skeleton Horse" = false
+	#Enable Slime Carcass
+	Slime = false
+	#Enable Sniffer Carcass
+	Sniffer = false
+	#Enable Spider Carcasses
+	"Spider Carcass" = false
+	#Enable Squid Carcasses
+	"Squid Carcass" = false
+	#Enable Stray Carcass
+	Stray = false
+	#Enable Strider Carcass
+	Strider = false
+	#Enable Turtle Carcass
+	Turtle = false
+	#Enable Villager Corpses
+	Villager = false
+	#Enable Vindicator Corpses
+	Vindicator = false
+	#Enable Warden Corpses
+	Warden = false
+	#Enable Witch Corpses
+	Witch = false
+	#Enable Wither Skeleton Corpses
+	"Wither Skeleton" = false
+	#Enable Wither Corpses
+	Wither = false
+	#Enable Wolf Corpses
+	Wolf = false
+	#Enable Zoglin Corpses
+	Zoglin = false
+	#Enable Zombie Corpses
+	Zombie = false
+	#Enable Zombie Horse Corpses
+	"Zombie Horse" = false
+	#Enable Zombie Villager Corpses
+	"Zombie Villager" = false
+	#Enable Zombified Piglin Corpses
+	"Zombified Piglin" = false
+
+["Farmers Delight Compatibility"]
+	#Enable Farmers Delight Compatibility
+	"Farmers Delight" = false
+	#Enable Carcass Drops From Farmer's Delight Knives.
+	"Farmers Delight Knives Drop Carcasses" = false
+
+["Vampirism Compatibility"]
+	#Replaces heart drops with vampirisms hearts
+	"Vampirism Heart" = false
+	#Replaces eye drops with vampirisms eyes
+	"Vampires Delight Eye" = false
+
+["Butchers Coin Reward"]
+	#The loottable that the butchery coin rewards from.
+	Loottable = "minecraft:chests/end_city_treasure"
+

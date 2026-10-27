@@ -1,0 +1,107 @@
+{
+  "name": "TFG Slide",
+  "author": "tfg",
+  "description": "Подкат: корпус откинут назад, ноги вперёд.",
+  "uuid": "7f9c1a20-5d3e-4b71-9c84-a1b2c3d4e5f6",
+  "emote": {
+    "beginTick": 0,
+    "endTick": 14,
+    "stopTick": 18,
+    "degrees": true,
+    "isLoop": false,
+    "moves": [
+      {
+        "tick": 0,
+        "easing": "EASEOUTQUAD",
+        "torso": {
+          "pitch": -12,
+          "y": -2
+        },
+        "rightLeg": {
+          "pitch": -25
+        },
+        "leftLeg": {
+          "pitch": 8
+        },
+        "rightArm": {
+          "pitch": 18
+        },
+        "leftArm": {
+          "pitch": 18
+        },
+        "head": {
+          "pitch": 12
+        }
+      },
+      {
+        "tick": 3,
+        "easing": "EASEOUTQUAD",
+        "torso": {
+          "pitch": -62,
+          "y": -9
+        },
+        "rightLeg": {
+          "pitch": -72
+        },
+        "leftLeg": {
+          "pitch": -34
+        },
+        "rightArm": {
+          "pitch": 58
+        },
+        "leftArm": {
+          "pitch": 52
+        },
+        "head": {
+          "pitch": 34
+        }
+      },
+      {
+        "tick": 8,
+        "easing": "LINEAR",
+        "torso": {
+          "pitch": -60,
+          "y": -9
+        },
+        "rightLeg": {
+          "pitch": -70
+        },
+        "leftLeg": {
+          "pitch": -30
+        },
+        "rightArm": {
+          "pitch": 55
+        },
+        "leftArm": {
+          "pitch": 56
+        },
+        "head": {
+          "pitch": 32
+        }
+      },
+      {
+        "tick": 14,
+        "easing": "EASEINOUTSINE",
+        "torso": {
+          "pitch": -18,
+          "y": -3
+        },
+        "rightLeg": {
+          "pitch": -22
+        },
+        "leftLeg": {
+          "pitch": 6
+        },
+        "rightArm": {
+          "pitch": 16
+        },
+        "leftArm": {
+          "pitch": 16
+        },
+        "head": {
+          "pitch": 10
+        }
+      }
+    ]
+  }
+}

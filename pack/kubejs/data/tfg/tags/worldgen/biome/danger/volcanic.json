@@ -1,0 +1,18 @@
+{
+  "replace": false,
+  "values": [
+    "tfg:earth/active_shield_volcano",
+    "tfg:earth/ancient_shield_volcano",
+    "tfg:earth/dormant_shield_volcano",
+    "tfg:earth/extinct_shield_volcano",
+    "tfg:earth/glaciated_shield_volcano",
+    "tfg:earth/old_shield_volcano_shore",
+    "tfg:earth/shield_volcano_shore",
+    "tfg:earth/sunken_shield_volcano",
+    "tfg:earth/tuyas",
+    "tfg:earth/volcanic_mountains",
+    "tfg:earth/volcanic_oceanic_mountains",
+    "tfg:earth/volcanic_mountain_lake",
+    "tfg:earth/volcanic_oceanic_mountain_lake"
+  ]
+}

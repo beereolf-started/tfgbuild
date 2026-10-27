@@ -1,0 +1,16 @@
+{
+	"item.tfg.fuel_tank": "Fuel Tank",
+	"item.tfg.fuel_tank.filled": "Fuel Tank (%s)",
+	"item.tfg.fuel_barrel_diesel": "Diesel Fuel Tank",
+	"item.tfg.fuel_barrel_cetane_boosted_diesel": "Cetane-Boosted Diesel Fuel Tank",
+	"item.tfg.fuel_barrel_gasoline": "Gasoline Fuel Tank",
+	"item.tfg.fuel_barrel_high_octane_gasoline": "High Octane Gasoline Fuel Tank",
+	"item.tfg.fuel_barrel_ethanol": "Ethanol Fuel Tank",
+	"item.tfg.fuel_barrel_methanol": "Methanol Fuel Tank",
+	"item.tfg.fuel_barrel_bio_diesel": "Bio Diesel Fuel Tank",
+	"item.tfg.fuel_barrel_creosote": "Creosote Fuel Tank",
+	"item.tfg.fuel_barrel_seed_oil": "Seed Oil Fuel Tank",
+	"item.tfg.fuel_barrel_tallow": "Tallow Fuel Tank",
+	"item.tfg.fuel_barrel_olive_oil": "Olive Oil Fuel Tank",
+	"item.tfg.fuel_barrel_bioethanol": "Bioethanol Fuel Tank"
+}

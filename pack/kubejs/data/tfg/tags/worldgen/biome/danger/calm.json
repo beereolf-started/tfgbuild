@@ -1,0 +1,18 @@
+{
+  "replace": false,
+  "values": [
+    "tfg:earth/plains",
+    "tfg:earth/hills",
+    "tfg:earth/rolling_hills",
+    "tfg:earth/terrace_lower",
+    "tfg:earth/terrace_upper",
+    "tfg:earth/drumlins",
+    "tfg:earth/knob_and_kettle",
+    "tfg:earth/patterned_ground",
+    "tfg:earth/inverted_patterned_ground",
+    "tfg:earth/stone_circles",
+    "tfg:earth/plateau",
+    "tfg:earth/plateau_lake",
+    "tfg:earth/plateau_wide"
+  ]
+}

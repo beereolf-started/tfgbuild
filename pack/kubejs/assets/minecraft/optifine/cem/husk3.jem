@@ -1,0 +1,218 @@
+{
+	"textureSize": [
+		64,
+		64
+	],
+	"models": [
+		{
+			"part": "head",
+			"id": "head",
+			"invertAxis": "xy",
+			"translate": [
+				0,
+				-24,
+				0
+			],
+			"boxes": [
+				{
+					"coordinates": [
+						-4,
+						24,
+						-4,
+						8,
+						8,
+						8
+					],
+					"textureOffset": [
+						0,
+						0
+					]
+				}
+			]
+		},
+		{
+			"part": "headwear",
+			"id": "headwear",
+			"invertAxis": "xy",
+			"translate": [
+				0,
+				-24,
+				0
+			],
+			"boxes": [
+				{
+					"coordinates": [
+						-4,
+						24,
+						-4,
+						8,
+						8,
+						8
+					],
+					"textureOffset": [
+						32,
+						0
+					],
+					"sizeAdd": 0.5
+				}
+			]
+		},
+		{
+			"part": "body",
+			"id": "body",
+			"invertAxis": "xy",
+			"translate": [
+				0,
+				-24,
+				0
+			],
+			"boxes": [
+				{
+					"coordinates": [
+						-4,
+						12,
+						-2,
+						8,
+						12,
+						4
+					],
+					"textureOffset": [
+						16,
+						16
+					]
+				}
+			],
+			"animations": [
+				{
+					"var.k": "if(hurt_time > 0, pow(hurt_time / 10, 1.5), 0)",
+					"var.q": "abs(move_forward) + abs(move_strafing)",
+					"var.f": "if(var.q < 0.15, -1, clamp(move_forward, -1, 1))",
+					"var.s": "if(var.q < 0.15, 0, clamp(move_strafing, -1, 1))",
+					"var.fold": "-var.f * var.k",
+					"body.rx": "if(is_sneaking, 0.5, 0) + if(var.fold > 0, 0.45, 0.3) * var.fold",
+					"body.rz": "-var.s * 0.3 * var.k",
+					"head.rx": "torad(head_pitch) + 0.35 * var.fold",
+					"head.rz": "-var.s * 0.25 * var.k",
+					"headwear.rx": "torad(head_pitch) + 0.35 * var.fold",
+					"headwear.rz": "-var.s * 0.25 * var.k"
+				}
+			]
+		},
+		{
+			"part": "right_arm",
+			"id": "right_arm",
+			"invertAxis": "xy",
+			"translate": [
+				5,
+				-22,
+				0
+			],
+			"boxes": [
+				{
+					"coordinates": [
+						-8,
+						12,
+						-2,
+						4,
+						12,
+						4
+					],
+					"textureOffset": [
+						40,
+						16
+					]
+				}
+			],
+			"animations": [
+				{
+					"right_arm.rx": "if(is_aggressive, torad(head_pitch) - pi / 2 + 0.1, cos(limb_swing * 0.6662 + pi) * limb_speed * 0.5 - pi / 10) + sin(age * 0.067) * 0.05",
+					"right_arm.ry": "if(is_aggressive, torad(head_yaw) - 0.3, 0)",
+					"right_arm.rz": "0.6 * var.k",
+					"left_arm.rx": "if(is_aggressive, torad(head_pitch) - 1.5, cos(limb_swing * 0.6662) * limb_speed) - sin(age * 0.067) * 0.05",
+					"left_arm.ry": "if(is_aggressive, torad(head_yaw) + 0.6, 0)",
+					"left_arm.rz": "-0.6 * var.k"
+				}
+			]
+		},
+		{
+			"part": "left_arm",
+			"id": "left_arm",
+			"invertAxis": "xy",
+			"translate": [
+				-5,
+				-22,
+				0
+			],
+			"mirrorTexture": "u",
+			"boxes": [
+				{
+					"coordinates": [
+						4,
+						12,
+						-2,
+						4,
+						12,
+						4
+					],
+					"textureOffset": [
+						40,
+						16
+					]
+				}
+			]
+		},
+		{
+			"part": "right_leg",
+			"id": "right_leg",
+			"invertAxis": "xy",
+			"translate": [
+				1.9,
+				-12,
+				0
+			],
+			"boxes": [
+				{
+					"coordinates": [
+						-3.9,
+						0,
+						-2,
+						4,
+						12,
+						4
+					],
+					"textureOffset": [
+						0,
+						16
+					]
+				}
+			]
+		},
+		{
+			"part": "left_leg",
+			"id": "left_leg",
+			"invertAxis": "xy",
+			"translate": [
+				-1.9,
+				-12,
+				0
+			],
+			"mirrorTexture": "u",
+			"boxes": [
+				{
+					"coordinates": [
+						-0.1,
+						0,
+						-2,
+						4,
+						12,
+						4
+					],
+					"textureOffset": [
+						0,
+						16
+					]
+				}
+			]
+		}
+	]
+}

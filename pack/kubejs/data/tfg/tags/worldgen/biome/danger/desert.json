@@ -1,0 +1,18 @@
+{
+  "replace": false,
+  "values": [
+    "tfg:earth/badlands",
+    "tfg:earth/canyons",
+    "tfg:earth/low_canyons",
+    "tfg:earth/mesas",
+    "tfg:earth/hoodoos",
+    "tfg:earth/buttes",
+    "tfg:earth/stair_step_canyons",
+    "tfg:earth/whorled_canyons",
+    "tfg:earth/setback_cliffs",
+    "tfg:earth/dune_sea",
+    "tfg:earth/grassy_dunes",
+    "tfg:earth/coastal_dunes",
+    "tfg:earth/salt_flats"
+  ]
+}

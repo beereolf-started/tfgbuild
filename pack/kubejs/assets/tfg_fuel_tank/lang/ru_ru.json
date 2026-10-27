@@ -1,0 +1,16 @@
+{
+	"item.tfg.fuel_tank": "Топливный бак",
+	"item.tfg.fuel_tank.filled": "Топливный бак (%s)",
+	"item.tfg.fuel_barrel_diesel": "Бак дизеля",
+	"item.tfg.fuel_barrel_cetane_boosted_diesel": "Бак цетанового дизеля",
+	"item.tfg.fuel_barrel_gasoline": "Бак бензина",
+	"item.tfg.fuel_barrel_high_octane_gasoline": "Бак высокооктанового бензина",
+	"item.tfg.fuel_barrel_ethanol": "Бак этанола",
+	"item.tfg.fuel_barrel_methanol": "Бак метанола",
+	"item.tfg.fuel_barrel_bio_diesel": "Бак биодизеля",
+	"item.tfg.fuel_barrel_creosote": "Бак креозота",
+	"item.tfg.fuel_barrel_seed_oil": "Бак растительного масла",
+	"item.tfg.fuel_barrel_tallow": "Бак топлёного жира",
+	"item.tfg.fuel_barrel_olive_oil": "Бак оливкового масла",
+	"item.tfg.fuel_barrel_bioethanol": "Бак биоэтанола"
+}

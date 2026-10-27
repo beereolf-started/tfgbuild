@@ -1,0 +1,28 @@
+
+#Server-side sync configuration
+[server]
+	#Enable map synchronization on the server
+	syncEnabled = true
+	#Maximum chunks per second the server will accept from a single client
+	#Range: 1 ~ 100
+	maxUploadPerSecond = 10
+	#Maximum chunks per second the server will send to a single client
+	#Range: 1 ~ 100
+	maxDownloadPerSecond = 10
+	#Number of chunk entries per registry packet
+	#Range: 1 ~ 500
+	registryBatchSize = 50
+	#Registry packets per second during initial sync
+	#Range: 1 ~ 20
+	registryPacketsPerSecond = 3
+	#Maximum chunk data size in bytes (for validation)
+	#Range: 1024 ~ 1048576
+	maxChunkDataSize = 65536
+	#Minimum time (in minutes) before a chunk can be re-uploaded. Prevents excessive updates from small changes like doors opening.
+	#Range: 1 ~ 60
+	minUpdateIntervalMinutes = 5
+	#Whitelist of dimensions to sync (empty = all allowed). Format: "minecraft:overworld"
+	dimensionWhitelist = []
+	#Blacklist of dimensions (only checked if whitelist is empty). Format: "minecraft:overworld"
+	dimensionBlacklist = []
+

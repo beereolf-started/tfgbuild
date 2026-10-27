@@ -1,0 +1,22 @@
+{
+  "replace": false,
+  "values": [
+    "tfg:earth/ice_sheet",
+    "tfg:earth/ice_sheet_edge",
+    "tfg:earth/ice_sheet_mountains",
+    "tfg:earth/ice_sheet_mountains_edge",
+    "tfg:earth/ice_sheet_oceanic",
+    "tfg:earth/ice_sheet_oceanic_mountains",
+    "tfg:earth/ice_sheet_oceanic_mountains_edge",
+    "tfg:earth/ice_sheet_shield_volcano",
+    "tfg:earth/ice_sheet_shore",
+    "tfg:earth/ice_sheet_tuyas",
+    "tfg:earth/ice_sheet_tuyas_edge",
+    "tfg:earth/glaciated_mountains",
+    "tfg:earth/glaciated_oceanic_mountains",
+    "tfg:earth/glacially_carved_mountains",
+    "tfg:earth/glacially_carved_oceanic_mountains",
+    "tfg:earth/subglacial_lake",
+    "tfg:earth/meltwater_lake"
+  ]
+}

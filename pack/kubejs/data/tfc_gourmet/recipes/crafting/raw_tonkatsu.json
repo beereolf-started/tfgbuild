@@ -1,0 +1,1 @@
+{"type": "minecraft:crafting_shapeless", "ingredients": [{"type": "tfc:not_rotten", "ingredient": {"tag": "tfgui:meat/pork"}}, {"type": "tfc:not_rotten", "ingredient": {"tag": "tfc:foods/flour"}}, {"type": "tfc:not_rotten", "ingredient": {"item": "minecraft:egg"}}, {"item": "tfc:powder/salt"}], "result": {"item": "tfc_gourmet:raw_tonkatsu", "count": 2}}

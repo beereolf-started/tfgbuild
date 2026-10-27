@@ -1,0 +1,18 @@
+{
+  "biomes": [
+    [
+      {
+        "type": "BIOME_TAG",
+        "negate": false,
+        "value": "tfg:danger/desert"
+      }
+    ],
+    [
+      {
+        "type": "BIOME_TAG",
+        "negate": false,
+        "value": "tfg:danger/wetland"
+      }
+    ]
+  ]
+}

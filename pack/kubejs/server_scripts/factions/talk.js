@@ -1,0 +1,310 @@
+// priority: -5
+"use strict";
+/**
+ * РАЗГОВОРЫ С ЖИТЕЛЯМИ (этап 2 плана NPC: Downloads/TFG-NPC-план.md, лор: Downloads/TFG-лор.md).
+ *
+ * Варианты добавляются в окно разговора (factions/dialogue.js, DLG_NPC_OPTIONS) для жителей поселений:
+ *   «Расскажи о себе»      - кто он, где живёт, семья; сколько скажет - по отношению к игроку;
+ *   «Расскажи о ком-нибудь» - человек из его окружения: кто он ему, что между ними было (летопись графа,
+ *                            relations.js) и, если доверяет игроку или недолюбливает того, - его секрет;
+ *   «О вере и мире»        - Всевышний, пророки, мессии, Выход Пустоты, незер, своя церковь - у каждой
+ *                            фракции по-своему;
+ *   «Что это за место»     - название, правитель, сколько людей, что тут было.
+ * После сплетни у игрока есть ответы - и от них меняется отношение.
+ *
+ * СЕКРЕТЫ. У каждого жителя 1-3 секрета, выводятся из номера поселения и жителя (не хранятся). Знают их
+ * близкие (мнение о хозяине секрета от +40) и враги (до -40), по жребию от имени. Узнанное игроком
+ * пишется в его данные (tfg_secrets) - на них опираются квесты (этап 6) и дневники (этап 3).
+ * Болтливость (0..1) - черта характера жителя от его имени.
+ */
+
+const TK_SECRET_KINDS = ["тайник", "долг", "интрижка", "кража", "ересь", "прошлое"]
+const TK_STASH = ["старое оружие", "мешочек самородков", "серебряное кольцо матери", "пару самоцветов",
+    "гравированный нож отца", "свёрток с монетами", "книгу, за которую сжигают"]
+const TK_STASH_WHERE = ["в развалинах старой башни", "под камнем у ручья", "в заброшенном форте", "в дупле старого дуба",
+    "под полом своего дома", "в пещере за холмом"]
+const TK_PAST = ["дезертировал из войска в 1019-м, когда нарушили перемирие", "водился с разбойниками с большой дороги",
+    "убил человека в драке и ушёл из родных мест", "был в плену у чужой фракции и вернулся не таким",
+    "служил наёмником у тех, кого теперь зовёт врагами"]
+const TK_HERESY = {
+    alliance: "тайком читает Книгу Тихих", ash: "сомневается, что Час близок, и смеётся над Пепельными псалмами",
+    marvins: "читает Белую хронику и восхищается её королями", wind: "не верит во Врата и зовёт Свиток сказкой",
+}
+
+function tkHash(s) { return rlHash(s) }
+
+const TK_DIRS = ["к востоку", "к юго-востоку", "к югу", "к юго-западу", "к западу", "к северо-западу", "к северу", "к северо-востоку"]
+
+/** Где тайник от середины поселения: « - к северу, шагов сто двадцать». Без тайника или под полом - пусто. */
+function tkStashHint(v, key) {
+    var st = key === "treasury" ? v.treasury : (v.stashes || {})[key]
+    if (!st || st.home || st.gone || st.x === undefined) return ""
+    var dx = st.x - v.x, dz = st.z - v.z
+    var a = Math.atan2(dz, dx) * 180 / 3.141592653589793
+    var dir = TK_DIRS[Math.round(((a % 360) + 360) % 360 / 45) % 8]
+    return " - " + dir + ", шагов " + Math.round(Math.sqrt(dx * dx + dz * dz) / 10) * 10
+}
+
+/** Секреты жителя: [{ kind, text, about }]. */
+function tkSecrets(v, s) {
+    var people = v.settlers.filter(o => !o.dead && o.id !== s.id)
+    var seed = v.id + "#" + s.id
+    var n = 1 + tkHash(seed + "n") % 3
+    var out = []
+    if (s.role === "правитель") out.push({ kind: "казна", text: "казна поселения спрятана не в форте, а в тайной землянке за поселением" + tkStashHint(v, "treasury") })
+    for (var i = 0; i < n; i++) {
+        var kind = TK_SECRET_KINDS[tkHash(seed + "k" + i) % TK_SECRET_KINDS.length]
+        if (out.some(x => x.kind === kind)) continue
+        var other = people.length ? people[tkHash(seed + "o" + i) % people.length] : null
+        var text = null
+        var si = tkHash(seed + "st" + i) % TK_STASH.length, wi = tkHash(seed + "sw" + i) % TK_STASH_WHERE.length
+        if (kind === "тайник") { text = "прячет " + TK_STASH[si] + " " + TK_STASH_WHERE[wi] + tkStashHint(v, s.id); out.push({ kind: kind, text: text, about: null, si: si, wi: wi }); continue }
+        else if (kind === "долг" && other) text = "в долгах и не может отдать, а заимодавец - " + other.name
+        else if (kind === "интрижка" && other && other.female !== s.female) text = "тайком встречается кое с кем, и это " + other.name
+        else if (kind === "кража" && other) text = "украл чужое и молчит, а обокраден - " + other.name
+        else if (kind === "ересь") text = TK_HERESY[v.faction] || "сомневается в Писании"
+        else if (kind === "прошлое") text = TK_PAST[tkHash(seed + "p" + i) % TK_PAST.length]
+        if (text) out.push({ kind: kind, text: text, about: other ? other.id : null })
+    }
+    return out
+}
+
+/** Знает ли житель who секрет хозяина owner. */
+function tkKnows(v, who, owner, i) {
+    var link = rlLinks(v, who.id).filter(l => l.other === owner.id)[0]
+    if (!link) return false
+    var roll = tkHash(v.id + "|" + who.id + "|" + owner.id + "|" + i) % 100
+    if (link.mine >= 40) return roll < 70
+    if (link.mine <= -40) return roll < 40
+    return roll < 10
+}
+
+function tkLoose(v, s) { return (tkHash(v.id + "@" + s.id + "loose") % 100) / 100 }
+
+/** Узнанные игроком секреты: [{ v, sid, i, text, day }]. */
+function tkKnown(player) {
+    try { return JSON.parse(String(player.persistentData.getString("tfg_secrets")) || "[]") } catch (e) { return [] }
+}
+function tkLearn(player, v, sid, i, text) {
+    var list = tkKnown(player)
+    if (list.some(x => x.v === v.id && x.sid === sid && x.i === i)) return false
+    list.push({ v: v.id, sid: sid, i: i, text: text, day: Math.floor(Number(player.level.getTime()) / 24000) })
+    player.persistentData.putString("tfg_secrets", JSON.stringify(list.slice(-200)))
+    return true
+}
+
+// ─── Кто передо мной ─────────────────────────────────────────────────────────
+
+function tkWho(ctx) {
+    var who = rlSettlerOf(ctx.trader)
+    if (!who) return null
+    var s = who.v.settlers.filter(x => x.id === who.sid)[0]
+    return s ? { v: who.v, s: s, op: rlOpinion(ctx.player, who.v, s) } : null
+}
+
+function tkName(v, id) {
+    var o = v.settlers.filter(x => x.id === id)[0]
+    return o ? o.name : "кто-то"
+}
+
+const TK_REFUSE = ["Не о чем мне с тобой говорить.", "Иди своей дорогой.", "Тебе я ничего не скажу.", "Отстань."]
+
+// ─── «Расскажи о себе» ───────────────────────────────────────────────────────
+
+const TK_ROLE_ABOUT = {
+    "правитель": "Я держу это место. За всё здесь отвечаю я - перед людьми и перед Всевышним.",
+    "крестьянин": "Землю пашу. Что вырастет - тем и живём.", "охотник": "Хожу в лес, бью зверя. Мясо, шкуры - это всё я.",
+    "лесоруб": "Лес валю. Без моего топора тут ни дома, ни огня.", "рыцарь": "Я рыцарь. Моё дело - стоять, когда другие бегут.",
+    "стрелок": "Стреляю. Со стены, из-за угла - откуда прикажут.", "дружинник": "В дружине я. Днём работа, ночью - копьё в руки.",
+    "бард": "Пою. Кто-то же должен помнить, как всё было.", "торговец": "Торгую. Чего у людей нет - то я и привожу.",
+}
+
+/** «Меня зовут ...» - одна запись на каждое имя (озвучены все имена жителей). */
+function tkNameLine(name) { return "Меня зовут " + name + "." }
+
+function tkAboutSelf(ctx) {
+    var w = tkWho(ctx)
+    if (!w) return dlgSay(ctx, "Да что обо мне говорить.")
+    var tier = rlTier(w.op.value)
+    if (tier === 0) return dlgSay(ctx, gsPick(TK_REFUSE))
+    // Реплики - постоянные (озвучены), имена близких - пометкой рассказчика: «Меня зовут ...» озвучено
+    // для каждого имени из списков жителей (tkNameLine), остальное с именами записать нельзя.
+    dlgSay(ctx, tkNameLine(w.s.name))
+    dlgSay(ctx, TK_ROLE_ABOUT[w.s.role] || "Живу тут, как все.")
+    if (tier <= 1) return dlgSay(ctx, "А больше тебе знать незачем.")
+    var family = rlLinks(w.v, w.s.id).filter(l => l.type === "spouse" || l.type === "kin")
+    if (family.length) {
+        var names = family.slice(0, 3).map(l => (l.type === "spouse" ? (w.s.female ? "муж " : "жена ") : "родня: ") + tkName(w.v, l.other))
+        dlgSay(ctx, String(w.s.home || "").indexOf("особняк") === 0 ? "Живу в особняке, с семьёй." :
+            String(w.s.home || "").indexOf("трущ") === 0 ? "Живу в хибаре на краю, с семьёй." : "Живу в доме у дороги, с семьёй.")
+        dlgNote(ctx, (w.s.female ? "С ней" : "С ним") + " живут: " + names.join(", ") + ".")
+    } else dlgSay(ctx, gsPick(["Один я живу. Так спокойнее.", "Семьи нет. Не сложилось.", "Все мои на Отмели уже."]))
+    if (tier >= 3) {
+        var close = rlLinks(w.v, w.s.id).filter(l => l.type === "friend" && l.mine > 30)[0]
+        var foe = rlLinks(w.v, w.s.id).filter(l => l.mine < -30)[0]
+        if (close) { dlgSay(ctx, "Есть у меня друг. Хороший человек, не подведёт."); dlgNote(ctx, "Друг: " + tkName(w.v, close.other) + ".") }
+        if (foe) { dlgSay(ctx, "А есть один - поперёк горла мне. Держись от него подальше."); dlgNote(ctx, "Недруг: " + tkName(w.v, foe.other) + ".") }
+    }
+}
+
+// ─── «Расскажи о ком-нибудь» ─────────────────────────────────────────────────
+
+const TK_REL_SAY = {
+    spouse: ["Это моя половина. Что тут скажешь - родной человек.", "Мы с ним одной нитью связаны, до самой Отмели."],
+    kin: ["Родня. Кровь не водица.", "Свой, домашний. Бывает, ругаемся, но свой."],
+    friend: ["Друг мой. За него поручусь.", "Хороший человек, мы с ним давно знаемся."],
+    rival: ["Вечно он мне дорогу переходит.", "Соперник. Всё пытается меня обойти."],
+    enemy: ["Не произноси при мне это имя.", "Гнида. Однажды рассчитаемся."],
+    mentor: ["Мы с ним одному делу служим - учились друг у друга.", "Из одного ремесла мы, он мне как наставник."],
+    debt: ["Деньги между нами. Неприятная история.", "Долг у нас. Не хочу об этом."],
+}
+const TK_EVENT_SAY = {
+    "сблизились": "Мы с ним последнее время сдружились.", "поссорились": "Поругались мы недавно, крепко.",
+    "помирились": "Помирились мы на днях, слава Всевышнему.", "подрались": "Подрались мы, до крови. Не горжусь.",
+    "одолжил денег": "Денег я ему недавно дал в долг.", "вернул долг": "Долг он мне вернул, честный оказался.",
+    "сделал подарок": "Подарок он мне сделал - не ждал.", "оскорбил": "Оскорбил он меня при людях.",
+    "ухаживает": "Ухаживает... ну, ты понимаешь.",
+}
+
+function tkAboutSomeone(ctx) {
+    var w = tkWho(ctx)
+    if (!w) return dlgSay(ctx, "Я тут никого толком не знаю.")
+    if (rlTier(w.op.value) === 0) return dlgSay(ctx, gsPick(TK_REFUSE))
+    var people = rlLinks(w.v, w.s.id).map(l => l.other)
+    var ruler = w.v.settlers.filter(x => x.role === "правитель" && !x.dead && x.id !== w.s.id)[0]
+    if (ruler && people.indexOf(ruler.id) < 0) people.push(ruler.id)
+    people = people.slice(0, 8)
+    if (!people.length) return dlgSay(ctx, "Я сам по себе, ни с кем особо не знаюсь.")
+    dlgChoice(ctx, "О ком спросишь?", people.map(id => ({
+        label: tkName(w.v, id), hint: "Что он знает об этом человеке",
+        run: c => tkTellAbout(c, w, id),
+    })))
+}
+
+function tkTellAbout(ctx, w, id) {
+    var target = w.v.settlers.filter(x => x.id === id)[0]
+    if (!target) return dlgSay(ctx, "Нет его больше. Ушёл на Отмель.")
+    var link = rlLinks(w.v, w.s.id).filter(l => l.other === id)[0]
+    if (link) dlgSay(ctx, gsPick(TK_REL_SAY[link.type]))
+    else if (target.role === "правитель") dlgSay(ctx, "Это наш правитель. " + (w.op.estate === "знать" ? "Мы с ним за одним столом сидим." : "Не моего ума дело его обсуждать."))
+    var ev = (w.v.relLog || []).filter(x => (x.a === w.s.id && x.b === id) || (x.b === w.s.id && x.a === id)).slice(-1)[0]
+    if (ev && TK_EVENT_SAY[ev.kind]) dlgSay(ctx, TK_EVENT_SAY[ev.kind])
+    // секрет: доверяет игроку, болтлив или терпеть не может того, о ком спросили
+    var tier = rlTier(w.op.value)
+    var dislikes = link && link.mine < -30
+    var loose = tkLoose(w.v, w.s)
+    var secrets = tkSecrets(w.v, target)
+    for (var i = 0; i < secrets.length; i++) {
+        if (!tkKnows(w.v, w.s, target, i)) continue
+        var tells = tier >= 4 || (tier >= 3 && (dislikes || loose > 0.5)) || (tier >= 2 && dislikes && loose > 0.6)
+        if (!tells) { dlgSay(ctx, gsPick(["Знаю я про него кое-что... да не скажу.", "Есть за ним грешок, но это не моё дело."])); return }
+        // вступление озвучено, сам секрет (имена, места) - пометкой
+        dlgSay(ctx, dislikes ? "Скажу, мне не жалко." : "Только между нами.")
+        dlgNote(ctx, "Шепчет: " + target.name + " " + secrets[i].text + ".")
+        var fresh = tkLearn(ctx.player, w.v, id, i, target.name + " " + secrets[i].text)
+        if (fresh) ctx.player.tell(Text.of("§8[Узнано: " + target.name + " " + secrets[i].text + "]"))
+        return dlgChoice(ctx, null, [
+            { label: "Буду нем как рыба", hint: "Он оценит, что ты умеешь молчать", run: c => { rlNote(w.v, c.player, w.s.id, 3, "обещал молчать"); dlgSay(c, "То-то же. Я на тебя надеюсь.") } },
+            { label: "Это всем стоит знать", hint: "Ему не понравится", run: c => { rlNote(w.v, c.player, w.s.id, -8, "грозился разболтать"); dlgSay(c, gsPick(["Ты что! Я тебе по секрету!", "Зря я тебе сказал."])) } },
+            { label: "Он сам виноват", hint: "Поддержать его", run: c => { if (dislikes) rlNote(w.v, c.player, w.s.id, 4, "поддержал"); dlgSay(c, dislikes ? "Вот и я говорю!" : "Ну... может, и так.") } },
+        ])
+    }
+    if (!link && !ev) dlgSay(ctx, gsPick(["Знаю его в лицо, не больше.", "Живёт тут, как все. Ничего худого не слышал."]))
+}
+
+// ─── «О вере и мире» ─────────────────────────────────────────────────────────
+
+const TK_FAITH_COMMON = [
+    "Всевышний заложил первый камень тверди тысячу двадцать три года назад. С того дня мы и считаем годы.",
+    "Он создал народы, чтобы узнать, какой из них сильнейший. Потому и воюем - иначе нельзя.",
+    "Мир - это перемирие между двумя войнами. Так учил Самуэль Медник.",
+    "Мессия нисходил к нам много раз. Эммануила Каменного убили все четыре народа разом, на Кровавом Холме.",
+    "Кто погиб храбро - сядет за стол в Чертоге Вечного Пира. Кто умер трусом - застрянет на Отмели.",
+    "На Отмель живым дороги нет. Говорят, только на самом дне незера есть проход.",
+    "Скоро будет Выход Пустоты. Мёртвые вернутся с Отмели, и кого коснутся - от того останется воронка со смолой.",
+    "Видал старящий дождь? Под ним железо ржавеет на глазах. Это знамение, не иначе.",
+    "Драконы старше людей. Первенцы Тверди. Чёрный ледяной - вестник конца.",
+    "Нити держат душу. Кто ни с кем не связан - уходит насовсем. Потому и клянёмся на крови.",
+]
+const TK_FAITH = {
+    alliance: ["Мы строим белые стены, чтобы Пустота разбилась о камень. Альвин Белый первым сложил стену.",
+        "Белая хроника - вот правда. Остальное - выдумки еретиков.", "Агнец Битвы пал с мечом в руке. Вот как надо умирать.",
+        "Книгу Тихих мы жжём. Нечего слушать Иерона Молчальника.", "Король Эдмунд Белый в Альбусе - помазанник. Его слово - слово Всевышнего."],
+    ash: ["Час Дурмана уже идёт. Посмотри на знамения - иней чёрный, зимы долгие.", "Тобиас Пепельный всё предрёк. Его зовут пророком страха - а он был прав.",
+        "Безликий сказал: нисхождений больше не будет. Дальше только Выход.", "Мы - дети Аша, кто вышел из огня горы. Пустота нас не возьмёт.",
+        "Кальдера стоит в жерле. Огонь внизу, Пустота ещё ниже. Мы ближе всех к правде."],
+    marvins: ["Слабого не грех добить - так Всевышний очищает весы. Иерон Молчальник учил.", "Марв Тихий первым узнал травы. Яд - тоже молитва, если знать, кому дать.",
+        "Пустоту можно привязать к своей воле. Мортис ищет как - и найдёт.", "Королева Ливия Тихая умнее всех королей вместе.",
+        "Белая хроника - самовосхваление. Альянс сам себя святыми записал."],
+    wind: ["Над облаками старящий дождь не идёт. Там и надо искать Врата.", "Агния Слепая видела Врата в небесах. Свиток Врат - не сказка.",
+        "Светоносный явился нам на облачном корабле. Альянс его ложным зовёт - от зависти.", "Вейя Ветреная первой поднялась в небо - мы её дети.",
+        "Остальные отошли от истинного бога. Мы выстоим против ереси, а потом уйдём во Врата."],
+}
+
+function tkFaith(ctx) {
+    var w = tkWho(ctx)
+    if (w && rlTier(w.op.value) === 0) return dlgSay(ctx, gsPick(TK_REFUSE))
+    var faction = w ? w.v.faction : ctx.faction
+    dlgSay(ctx, gsPick(TK_FAITH_COMMON))
+    var own = TK_FAITH[faction]
+    if (own) dlgSay(ctx, gsPick(own))
+}
+
+// ─── «Что это за место» ──────────────────────────────────────────────────────
+
+const TK_PLACE_FACTION = {
+    alliance: "Это земля Альянса. Белые стены, порядок, закон.",
+    ash: "Это земля эшлендеров. Пепел и камень - наш дом.",
+    marvins: "Это земля марвинов. Здесь умеют молчать.",
+    wind: "Это земля торговцев ветром. Мы тут ненадолго - небо зовёт.",
+    bandits: "Это наша земля. А чья ещё - не твоё дело.",
+}
+
+function tkPlace(ctx) {
+    var w = tkWho(ctx)
+    if (!w) return dlgSay(ctx, "Место как место.")
+    var site = null
+    try { site = lrSiteOfVillage(w.v.id) } catch (e) { }
+    var faction = null
+    try { faction = global.TFG_FACTIONS.list.filter(f => f.id === w.v.faction)[0] } catch (e) { }
+    var ruler = w.v.settlers.filter(x => x.role === "правитель" && !x.dead)[0]
+    var alive = w.v.settlers.filter(x => !x.dead).length
+    // голосом - постоянные фразы (по народу и величине), название, правитель и события - пометкой
+    dlgSay(ctx, TK_PLACE_FACTION[w.v.faction] || "Место как место.")
+    dlgSay(ctx, alive < 8 ? "Народу у нас немного, все друг друга знают." : alive < 20 ? "Людей хватает, живём не тесно." : "Народу тьма, всех и не упомнишь.")
+    dlgNote(ctx, (site ? site.name + ". " : "") + (faction ? "Земля " + faction.name + ". " : "") + "Жителей: " + alive + ".")
+    if (ruler) {
+        if (ruler.id === w.s.id) dlgSay(ctx, "Правлю здесь я.")
+        else { dlgSay(ctx, "Правитель у нас есть, к нему и иди по делам."); dlgNote(ctx, "Правит " + ruler.name + ".") }
+    }
+    var events = site && site.events ? site.events.slice(-2) : []
+    if (events.length) { dlgSay(ctx, "Всякое тут бывало."); dlgNote(ctx, events.map(e => String(e.text)).join(". ") + ".") }
+}
+
+// ─── Встраиваем в окно разговора ─────────────────────────────────────────────
+
+;(() => {
+    if (typeof DLG_NPC_OPTIONS === "undefined") return
+    var isSettler = ctx => { try { return ctx.trader.getTags().contains("tfg_settler") } catch (e) { return false } }
+    var add = [
+        { id: "tk_self", label: () => "Расскажи о себе", hint: () => "Кто он и как живёт. Сколько скажет - по тому, как к вам относится.", show: isSettler, run: ctx => tkAboutSelf(ctx) },
+        { id: "tk_who", label: () => "Расскажи о ком-нибудь", hint: () => "О людях вокруг него. Кто доверяет - может выдать чужой секрет.", show: isSettler, run: ctx => tkAboutSomeone(ctx) },
+        { id: "tk_faith", label: () => "О вере и мире", hint: () => "Всевышний, пророки, Выход Пустоты, незер.", show: isSettler, run: ctx => tkFaith(ctx) },
+        { id: "tk_place", label: () => "Что это за место?", hint: () => "Название, правитель, что тут было.", show: isSettler, run: ctx => tkPlace(ctx) },
+    ]
+    // жители без ремесла - в окно жителя; жители-торговцы - в окно торговца (перед «Разойтись»)
+    ;[DLG_NPC_OPTIONS, typeof DLG_OPTIONS !== "undefined" ? DLG_OPTIONS : null].forEach(list => {
+        if (!list) return
+        var at = list.findIndex(o => o.id === "leave")
+        add.forEach(o => {
+            if (list.some(x => x.id === o.id)) return
+            list.splice(at < 0 ? list.length : at, 0, o)
+            if (at >= 0) at++
+        })
+    })
+})()
+
+global.TFG_TALK = {
+    secrets: (v, s) => tkSecrets(v, s),
+    known: player => tkKnown(player),
+}

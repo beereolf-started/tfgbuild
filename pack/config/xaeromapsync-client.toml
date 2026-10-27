@@ -1,0 +1,14 @@
+
+#Client-side sync configuration
+[client]
+	#Automatically upload explored chunks to the server
+	autoUpload = true
+	#Automatically download available chunks from the server
+	autoDownload = true
+	#Maximum chunks per second to upload
+	#Range: 1 ~ 100
+	maxUploadPerSecond = 10
+	#Maximum chunks per second to request
+	#Range: 1 ~ 100
+	maxDownloadPerSecond = 10
+

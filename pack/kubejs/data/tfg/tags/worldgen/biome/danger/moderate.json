@@ -1,0 +1,13 @@
+{
+  "replace": false,
+  "values": [
+    "tfg:earth/old_mountains",
+    "tfg:earth/mountains",
+    "tfg:earth/highlands",
+    "tfg:earth/rocky_plateau",
+    "tfg:earth/mountain_lake",
+    "tfg:earth/oceanic_mountain_lake",
+    "tfg:earth/old_mountain_lake",
+    "tfg:earth/oceanic_mountains"
+  ]
+}

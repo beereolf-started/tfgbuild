@@ -1,0 +1,11 @@
+{
+  "replace": false,
+  "values": [
+    "tfg:earth/lowlands",
+    "tfg:earth/salt_marsh",
+    "tfg:earth/mud_flats",
+    "tfg:earth/tidal_flats",
+    "tfg:earth/embayments",
+    "tfg:earth/river"
+  ]
+}

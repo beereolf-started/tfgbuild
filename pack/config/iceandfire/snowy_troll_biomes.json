@@ -1,0 +1,18 @@
+{
+  "biomes": [
+    [
+      {
+        "type": "BIOME_TAG",
+        "negate": false,
+        "value": "tfg:danger/cold"
+      }
+    ],
+    [
+      {
+        "type": "BIOME_TAG",
+        "negate": false,
+        "value": "tfg:danger/moderate"
+      }
+    ]
+  ]
+}
