@@ -95,6 +95,7 @@ const CP_HOME = ["Спасибо за дорогу. Пойду домой.", "Б
 const CP_BASE_YES = ["Твоя база - мой дом. Только корми как следует.", "Пойду к тебе жить. Посмотрим, как у вас там."]
 const CP_NO_BASE = "Куда идти-то? У тебя и базы нет."
 const CP_HUNGRY_LEAVE = "Три дня без еды. Я ухожу домой, и не зови меня больше."
+const CP_HUNGRY_LEAVE_OATH = "Я терпел, сколько мог, и клятву помню. Но пять дней без еды - это уже не дорога. Ухожу."
 
 function cpIsSettler(ctx) { try { return ctx.trader.getTags().contains("tfg_settler") } catch (e) { return false } }
 function cpOf(ctx) {
@@ -254,9 +255,412 @@ function cpEat(level, base) {
     return true
 }
 
+// ─── Работа на базе по сословию ──────────────────────────────────────────────
+//
+// По плану (TFG-NPC-план.md, этап 7): крестьянин относит урожай в контейнер с зерном,
+// знать торгует с караванами, военный защищает (защита была написана раньше).
+//
+// ЖАТВА БЕЗ ПОЛОМКИ. У грядок TFC свой обработчик правого щелчка - тот самый сбор, после
+// которого грядка остаётся стоять. Мы вызываем его же через подставного игрока Forge, а не
+// ломаем блок. Поэтому зрелость угадывать не нужно: неспелая грядка сама отвечает «ничего
+// не произошло», и тогда мы её не трогаем. Испортить урожай этот код не может.
+
+var CP_BlockPos = null, CP_HitResult = null, CP_Vec3 = null, CP_Direction = null,
+    CP_Hand = null, CP_FakePlayer = null, CP_javaFailed = false;
+
+function cpJava() {
+    if (CP_BlockPos) return true;
+    if (CP_javaFailed) return false;
+    try {
+        CP_BlockPos = Java.loadClass("net.minecraft.core.BlockPos");
+        CP_HitResult = Java.loadClass("net.minecraft.world.phys.BlockHitResult");
+        CP_Vec3 = Java.loadClass("net.minecraft.world.phys.Vec3");
+        CP_Direction = Java.loadClass("net.minecraft.core.Direction");
+        CP_Hand = Java.loadClass("net.minecraft.world.InteractionHand");
+        CP_FakePlayer = Java.loadClass("net.minecraftforge.common.util.FakePlayerFactory");
+        return true;
+    } catch (e) {
+        CP_javaFailed = true;
+        cpLog("работа на базе отключена: не загрузились классы - " + e);
+        return false;
+    }
+}
+
+/** Что считаем зерном: по нему выбирается нужный контейнер. */
+var CP_GRAIN = /grain|seeds|food\/(wheat|barley|oat|rye|rice|maize)/;
+/** Что крестьянин вообще относит в хранилище (еда, семена, волокно - не инструменты и не руда). */
+var CP_HAUL = /food\/|grain|seeds|straw|jute|papyrus|sugarcane|wool|hide/;
+
+var CP_PLOT_R = 14;            // в каком радиусе от базы ищем грядки
+var CP_PLOT_TTL = 24000;       // как часто пересматриваем, где грядки (игровые сутки)
+var CP_HAUL_R = 10;            // в каком радиусе подбираем лежащее
+var CP_WORK_EVERY = 100;       // как часто работаем (тиков)
+
+/**
+ * Грядки рядом с базой. Список запоминается на игровые сутки: обходить тысячи блоков каждый
+ * раз незачем, а новые грядки появляются не быстрее.
+ */
+function cpPlots(level, s, b, now) {
+    if (s.comp.plots && now - (s.comp.plotsAt || 0) < CP_PLOT_TTL) return s.comp.plots;
+    var out = [];
+    for (var x = b.x - CP_PLOT_R; x <= b.x + CP_PLOT_R; x++) {
+        for (var z = b.z - CP_PLOT_R; z <= b.z + CP_PLOT_R; z++) {
+            for (var y = b.y - 3; y <= b.y + 4; y++) {
+                var id = null;
+                try { id = String(level.getBlock(x, y, z).id); } catch (e) { continue }
+                if (id.indexOf("tfc:crop/") !== 0) continue;
+                out.push([x, y, z]);
+            }
+        }
+    }
+    s.comp.plots = out;
+    s.comp.plotsAt = now;
+    if (out.length) cpLog(s.name + ": грядок рядом с базой - " + out.length);
+    return out;
+}
+
+/** Собрать грядку её же правым щелчком. true - собралось, false - не спелая или нельзя. */
+function cpReap(level, x, y, z) {
+    if (!cpJava()) return false;
+    try {
+        var pos = new CP_BlockPos(x, y, z);
+        var state = level.getBlockState(pos);
+        var fake = CP_FakePlayer.getMinecraft(level);
+        if (!fake) return false;
+        var hit = new CP_HitResult(new CP_Vec3(x + 0.5, y + 0.5, z + 0.5), CP_Direction.UP, pos, false);
+        var res = String(state.use(level, fake, CP_Hand.MAIN_HAND, hit));
+        return res === "SUCCESS" || res === "CONSUME" || res === "CONSUME_PARTIAL";
+    } catch (e) { return false }
+}
+
+var CP_STORE_TTL = 6000;       // как часто пересматриваем, где стоят хранилища
+
+/**
+ * Где у базы хранилища. Обход куба в тридцать три блока стоит дорого, поэтому запоминаем
+ * КООРДИНАТЫ на CP_STORE_TTL тиков, а сами обработчики берём заново каждый раз: сундук могли
+ * разобрать, и держать ссылку на его обработчик нельзя.
+ */
+function cpStorePlaces(level, s, b, now) {
+    if (s.comp.stores && now - (s.comp.storesAt || 0) < CP_STORE_TTL) return s.comp.stores;
+    var out = [];
+    for (var x = b.x - 16; x <= b.x + 16; x++) {
+        for (var z = b.z - 16; z <= b.z + 16; z++) {
+            for (var y = b.y - 4; y <= b.y + 6; y++) {
+                var be = null;
+                try { be = level.getBlock(x, y, z).getEntity(); } catch (e) { continue }
+                if (!be) continue;
+                var ok = false;
+                try { ok = !!be.getCapability(LB_ItemHandler).resolve().get(); } catch (e) { continue }
+                if (ok) out.push([x, y, z]);
+            }
+        }
+    }
+    s.comp.stores = out;
+    s.comp.storesAt = now;
+    if (out.length) cpLog(s.name + ": хранилищ у базы - " + out.length);
+    return out;
+}
+
+/** Хранилища с содержимым: [{ h, x, y, z, grain, free }], grain - сколько в нём зерна. */
+function cpStores(level, s, b, now) {
+    var out = [];
+    cpStorePlaces(level, s, b, now).forEach(p => {
+        var be = null;
+        try { be = level.getBlock(p[0], p[1], p[2]).getEntity(); } catch (e) { return }
+        if (!be) return;
+        var h = null;
+        try { h = be.getCapability(LB_ItemHandler).resolve().get(); } catch (e) { return }
+        if (!h) return;
+        var grain = 0, free = 0;
+        try {
+            for (var i = 0; i < h.getSlots(); i++) {
+                var st = h.getStackInSlot(i);
+                if (!st || st.isEmpty()) { free++; continue }
+                if (CP_GRAIN.test(String(st.id))) grain += st.getCount();
+            }
+        } catch (e) { return }
+        out.push({ h: h, x: p[0], y: p[1], z: p[2], grain: grain, free: free });
+    });
+    return out;
+}
+
+/** Куда относить: где больше всего зерна, а если зерна нет нигде - где больше места. */
+function cpGrainStore(stores) {
+    var best = null;
+    stores.forEach(st => {
+        if (!best) { best = st; return }
+        if (st.grain > best.grain) { best = st; return }
+        if (st.grain === best.grain && st.free > best.free) best = st;
+    });
+    if (best && best.grain === 0 && best.free === 0) return null;
+    return best;
+}
+
+/** Положить стопку в хранилище. Возвращает, сколько осталось не влезшим. */
+function cpPut(store, stack) {
+    var rest = stack;
+    try {
+        for (var i = 0; i < store.h.getSlots() && !rest.isEmpty(); i++) {
+            rest = store.h.insertItem(i, rest, false);
+        }
+    } catch (e) { return stack }
+    return rest;
+}
+
+/** Подобрать лежащее рядом и отнести в хранилище. Возвращает, сколько стопок унесено. */
+function cpHaul(level, e, store) {
+    if (typeof RAID_AABBClass === "undefined") return 0;
+    var list = null;
+    try {
+        list = level.getEntities(e, new RAID_AABBClass(e.getX() - CP_HAUL_R, e.getY() - 3, e.getZ() - CP_HAUL_R,
+            e.getX() + CP_HAUL_R, e.getY() + 3, e.getZ() + CP_HAUL_R));
+    } catch (err) { return 0 }
+    var taken = 0;
+    for (var i = 0; i < list.size() && taken < 4; i++) {
+        var it = list.get(i);
+        if (!it || String(it.type) !== "minecraft:item") continue;
+        var stack = null;
+        try { stack = it.getItem(); } catch (err) { continue }
+        if (!stack || stack.isEmpty()) continue;
+        if (!CP_HAUL.test(String(stack.id))) continue;
+        var rest = cpPut(store, stack.copy());
+        if (rest.isEmpty()) { try { it.discard(); } catch (err) { } taken++; }
+        else if (rest.getCount() < stack.getCount()) { try { it.setItem(rest); } catch (err) { } taken++; }
+    }
+    return taken;
+}
+
+/** Крестьянин: собрать одну спелую грядку и отнести лежащее в контейнер с зерном. */
+function cpWorkPeasant(level, c, now) {
+    var e = c.e, s = c.s, b = s.comp.base;
+    var stores = cpStores(level, s, b, now);
+    if (!stores.length) return;
+    var store = cpGrainStore(stores);
+    if (!store) return;
+
+    // жатва: по одной грядке за раз, начиная с той, где остановились
+    var plots = cpPlots(level, s, b, now);
+    if (plots.length) {
+        var at = Number(s.comp.plotAt || 0) % plots.length;
+        for (var n = 0; n < plots.length; n++) {
+            var p = plots[(at + n) % plots.length];
+            var d2 = Math.pow(p[0] - e.getX(), 2) + Math.pow(p[2] - e.getZ(), 2);
+            if (d2 > 4) {
+                // идём к ближней грядке, а жнём, когда дойдём
+                try { e.getNavigation().moveTo(p[0] + 0.5, p[1], p[2] + 0.5, 0.8); } catch (err) { }
+                if (d2 < CP_PLOT_R * CP_PLOT_R * 4) break;
+                continue;
+            }
+            if (cpReap(level, p[0], p[1], p[2])) {
+                s.comp.plotAt = (at + n + 1) % plots.length;
+                break;
+            }
+        }
+    }
+    // разноска: подобрать выпавшее и всё прочее добро у базы
+    var taken = cpHaul(level, e, store);
+    if (taken > 0) {
+        try { e.getNavigation().moveTo(store.x + 0.5, store.y, store.z + 0.5, 0.8); } catch (err) { }
+    }
+}
+
+// ─── Знать: торг с караванами ────────────────────────────────────────────────
+//
+// Торговец каравана держит свой вид и ассортимент у себя в данных (tfg_trader_kind,
+// tfg_trader_offers - список { item, count, price, stock }), поэтому ничего заново не
+// придумываем: знать покупает из того же ассортимента и по тем же ценам, что и игрок.
+//
+// Деньги берутся из сундука, где монет больше всего (по плану этапа 7). Считает и раскладывает
+// их coins.js: в дело идут только верифицированные, сдача возвращается в тот же сундук.
+
+var CP_DEAL_EVERY = 1200;      // как часто знать заключает сделку (тиков)
+var CP_TRADER_R = 28;          // в каком радиусе от базы ищем торговца
+
+var CP_DEAL_SAY = ["Караван пришёл - надо брать, пока не ушли.", "Сторговался. Недорого, по нынешним временам.",
+    "Взял для хозяйства. Деньги в сундуке были, я не из своих платил.",
+    "Пока ты ходишь где-то, дела делаются здесь."];
+var CP_DEAL_POOR = ["Монет в сундуке нет. На что я, по-твоему, должен торговать?",
+    "Караван есть, денег нет. Так торговли не выйдет."];
+
+/** Торговец каравана рядом с базой (не житель этой базы). */
+function cpTraderNear(level, e, b) {
+    if (typeof RAID_AABBClass === "undefined") return null;
+    var list = null;
+    try {
+        list = level.getEntities(e, new RAID_AABBClass(b.x - CP_TRADER_R, b.y - 12, b.z - CP_TRADER_R,
+            b.x + CP_TRADER_R, b.y + 12, b.z + CP_TRADER_R));
+    } catch (err) { return null }
+    for (var i = 0; i < list.size(); i++) {
+        var t = list.get(i);
+        try {
+            if (!t || !t.isAlive() || !t.getTags().contains("tfg_trader")) continue;
+            if (t.getTags().contains("tfg_companion")) continue;
+            if (!String(t.persistentData.getString("tfg_trader_offers"))) continue;
+            return t;
+        } catch (err) { }
+    }
+    return null;
+}
+
+/** Верифицированные монеты в хранилище: [{ slot, face, count }], сверху крупные. */
+function cpCoinsIn(store) {
+    var out = [];
+    try {
+        for (var i = 0; i < store.h.getSlots(); i++) {
+            var st = store.h.getStackInSlot(i);
+            if (!st || st.isEmpty()) continue;
+            var face = 0;
+            try { face = Number(global.TFG_COINS.faceValue(st)); } catch (e) { face = 0 }
+            if (face <= 0) continue;
+            var ok = false;
+            try { ok = !!global.TFG_COINS.isVerified(st); } catch (e) { ok = false }
+            if (!ok) continue;
+            out.push({ slot: i, face: face, count: st.getCount() });
+        }
+    } catch (e) { return [] }
+    out.sort((a, b) => b.face - a.face);
+    return out;
+}
+
+function cpCoinTotal(store) {
+    var sum = 0;
+    cpCoinsIn(store).forEach(c => { sum += c.face * c.count });
+    return sum;
+}
+
+/** Хранилище, где монет больше всего (или null). */
+function cpCoinStore(stores) {
+    var best = null, bestSum = 0;
+    stores.forEach(st => {
+        var sum = cpCoinTotal(st);
+        if (sum > bestSum) { bestSum = sum; best = st }
+    });
+    return best;
+}
+
+/** Монета этого номинала, верифицированная. */
+function cpCoinStack(id, count) {
+    try { return coinVerifiedStack(id, count) } catch (e) { }
+    return Item.of(id, count, { tfg_verified: true });
+}
+
+/** Выложить из сундука не меньше price; возвращает, сколько выложено (0 - не хватило). */
+function cpTakeCoins(store, price) {
+    var coins = cpCoinsIn(store), paid = 0;
+    for (var i = 0; i < coins.length && paid < price; i++) {
+        var c = coins[i];
+        for (var n = 0; n < c.count && paid < price; n++) {
+            var got = null;
+            try { got = store.h.extractItem(c.slot, 1, false) } catch (e) { got = null }
+            if (!got || got.isEmpty()) break;
+            paid += c.face;
+        }
+    }
+    return paid;
+}
+
+/** Сдачу - обратно в тот же сундук. */
+function cpChangeBack(store, amount) {
+    if (amount <= 0) return;
+    var parts = [];
+    try { parts = global.TFG_COINS.split(Math.round(amount)) } catch (e) { return }
+    parts.forEach(p => { cpPut(store, cpCoinStack(p.id, p.count)) });
+}
+
+/** Куда положить купленное: где больше свободных ячеек. */
+function cpRoomStore(stores) {
+    var best = null;
+    stores.forEach(st => { if (!best || st.free > best.free) best = st });
+    return best && best.free > 0 ? best : null;
+}
+
+/** Знать: сторговаться с караваном за монеты из самого богатого сундука. */
+function cpWorkNoble(level, c, now) {
+    var e = c.e, s = c.s, b = s.comp.base;
+    if (now - Number(s.comp.dealAt || 0) < CP_DEAL_EVERY) return;
+
+    var trader = cpTraderNear(level, e, b);
+    if (!trader) return;
+
+    var stores = cpStores(level, s, b, now);
+    if (!stores.length) return;
+    var purse = cpCoinStore(stores);
+    if (!purse) {
+        s.comp.dealAt = now;
+        if (!s.comp.poorSaid) { s.comp.poorSaid = true; try { seVoice(e, cpPick(CP_DEAL_POOR)) } catch (err) { } }
+        return;
+    }
+    s.comp.poorSaid = false;
+
+    var offers = null;
+    try { offers = JSON.parse(String(trader.persistentData.getString("tfg_trader_offers"))) } catch (err) { return }
+    if (!offers || !offers.length) return;
+
+    // знать берёт самое дорогое из того, что по карману
+    var money = cpCoinTotal(purse), pick = -1;
+    for (var i = 0; i < offers.length; i++) {
+        var o = offers[i];
+        if (!o || !o.item || Number(o.stock) <= 0 || Number(o.price) <= 0) continue;
+        if (Number(o.price) > money) continue;
+        if (pick < 0 || Number(o.price) > Number(offers[pick].price)) pick = i;
+    }
+    if (pick < 0) { s.comp.dealAt = now; return }
+
+    // подойти к торговцу; торгуемся, только когда дошли
+    var d2 = Math.pow(trader.getX() - e.getX(), 2) + Math.pow(trader.getZ() - e.getZ(), 2);
+    if (d2 > 12) {
+        try { e.getNavigation().moveTo(trader.getX(), trader.getY(), trader.getZ(), 0.9) } catch (err) { }
+        return;
+    }
+
+    var offer = offers[pick], price = Math.round(Number(offer.price));
+    var room = cpRoomStore(stores);
+    if (!room) { s.comp.dealAt = now; return }
+
+    var paid = cpTakeCoins(purse, price);
+    if (paid < price) {                                   // не набралось - вернуть всё назад
+        cpChangeBack(purse, paid);
+        s.comp.dealAt = now;
+        return;
+    }
+
+    var goods = null;
+    try { goods = Item.of(String(offer.item), Math.max(1, Number(offer.count) || 1)) } catch (err) { goods = null }
+    if (!goods) { cpChangeBack(purse, paid); s.comp.dealAt = now; return }
+
+    var rest = cpPut(room, goods);
+    if (!rest.isEmpty()) {                                // не влезло - сделки не было
+        cpChangeBack(purse, paid);
+        s.comp.dealAt = now;
+        return;
+    }
+    cpChangeBack(purse, paid - price);
+
+    offer.stock = Number(offer.stock) - 1;
+    try { trader.persistentData.putString("tfg_trader_offers", JSON.stringify(offers)) } catch (err) { }
+
+    s.comp.dealAt = now;
+    try { seVoice(e, cpPick(CP_DEAL_SAY)) } catch (err) { }
+    try { rlNote(c.v, { uuid: s.comp.owner, username: "?" }, s.id, 1, "сторговался с караваном") } catch (err) { }
+    cpLog(s.name + " купил " + offer.item + " x" + (offer.count || 1) + " за " + price + " (сдача " + (paid - price) + ")");
+    try { global.TFG_SETTLERS.save() } catch (err) { }
+}
+
+/** Работа по сословию. Военные стерегут базу - это сделано отдельно, выше. */
+function cpWork(level, c, now) {
+    var s = c.s;
+    if (now % CP_WORK_EVERY >= 20) return;
+    var estate = "простолюдины";
+    try { estate = String(global.TFG_SETTLERS.estateOf(s)); } catch (e) { }
+    if (estate === "знать") cpWorkNoble(level, c, now);
+    else if (estate === "простолюдины") cpWorkPeasant(level, c, now);
+}
+
 function cpBaseStep(level, c, now) {
     var e = c.e, s = c.s, b = s.comp.base
     if (!b) return
+    // работа по сословию
+    try { cpWork(level, c, now) } catch (err) { cpTickFail("работа на базе", err, now) }
     var dx = b.x - e.getX(), dz = b.z - e.getZ()
     // далеко от базы - домой; иначе бродит рядом
     if (dx * dx + dz * dz > CP_BASE_R * CP_BASE_R * 4) { try { e.teleportTo(b.x + 0.5, b.y, b.z + 0.5) } catch (err) { } }
@@ -288,8 +692,8 @@ function cpBaseStep(level, c, now) {
         if (cpEat(level, b)) { s.comp.ate = (s.comp.ate || 0) + 1; s.comp.hungry = 0 }
         try { global.TFG_SETTLERS.save() } catch (err) { }
     }
-    if ((s.comp.hungry || 0) >= 3) {
-        try { seVoice(e, CP_HUNGRY_LEAVE) } catch (err) { }
+    if ((s.comp.hungry || 0) >= (s.comp.oath ? CP_OATH_HUNGER : CP_HUNGER_PLAIN)) {
+        try { seVoice(e, s.comp.oath ? CP_HUNGRY_LEAVE_OATH : CP_HUNGRY_LEAVE) } catch (err) { }
         try { rlNote(c.v, { uuid: s.comp.owner, username: "?" }, s.id, -25, "голодал на базе") } catch (err) { }
         delete s.comp
         delete s.away
@@ -438,3 +842,253 @@ ServerEvents.commandRegistry(event => {
 })
 
 global.TFG_COMPANIONS = { mine: player => cpMine(player) }
+
+// ─── Цепочки разговоров со спутником ─────────────────────────────────────────
+//
+// Движок - factions/talk_chains.js. Здесь не отдельные реплики, а связанные ветки: ответы
+// зависят от сословия, от отношения, от того, голодал ли он, и от того, дал ли он клятву.
+// Клятва - по канону (нити держат душу): у поклявшегося терпение к голоду с трёх дней до пяти,
+// и он об этом прямо говорит.
+
+const CP_OATH_HUNGER = 5;              // сколько дней голода терпит поклявшийся
+const CP_HUNGER_PLAIN = 3;             // и сколько - непоклявшийся
+
+function cpOathed(ctx) {
+    var w = cpOf(ctx);
+    return !!w && !!w.s.comp && !!w.s.comp.oath;
+}
+
+function cpModeOf(ctx) {
+    var w = cpOf(ctx);
+    return w && w.s.comp ? String(w.s.comp.mode || "") : "";
+}
+
+function cpHungryOf(ctx) {
+    var w = cpOf(ctx);
+    return w && w.s.comp ? Number(w.s.comp.hungry || 0) : 0;
+}
+
+;(() => {
+    if (!global.TFG_TALK_CHAINS || !global.TFG_TALK_CHAINS.add) { cpLog("цепочки разговоров недоступны"); return }
+    var add = global.TFG_TALK_CHAINS.add;
+
+    // ─── Как тебе дорога ───
+    add({
+        id: "cp_tk_road",
+        label: () => "Как тебе дорога?",
+        hint: () => "О пути, об усталости и о том, что он думает про тебя.",
+        show: ctx => !!cpOf(ctx) && cpModeOf(ctx) !== "база",
+        start: "a",
+        steps: {
+            a: {
+                say: ctx => {
+                    var op = 0;
+                    try { op = Number(global.TFG_RELATIONS.opinion(ctx.player, cpOf(ctx).v, cpOf(ctx).s)) } catch (e) { }
+                    if (cpHungryOf(ctx) > 0) return ["Дорога-то ничего. Только брюхо пустое, а это портит всякую дорогу."];
+                    if (op >= 60) return ["С тобой хорошо идти. Я бы и дальше пошёл, куда скажешь."];
+                    if (op >= 20) return ["Идём - и ладно. Ноги держат, и то хлеб."];
+                    return ["Иду, потому что сговорились. Не больше."];
+                },
+                ask: "О чём спросишь?",
+                opts: [
+                    { label: "Не устал?", go: "tired" },
+                    { label: "Зачем ты пошёл со мной?", go: "why" },
+                    { label: "Чего ты боишься в пути?", go: "fear" },
+                    { label: "Ладно, идём.", go: null },
+                ],
+            },
+            tired: {
+                say: ctx => cpHungryOf(ctx) > 0
+                    ? ["Устал не от ходьбы, а от голода. Я ел в последний раз сам не помню когда.",
+                       "Если хочешь, чтобы я шёл дальше - корми. Это не каприз."]
+                    : ["Нет. Я не барин, я ходил и дальше, и хуже.",
+                       "Главное - не стоять на мокром. От мокрого потом ломит."],
+                opts: [],
+            },
+            why: {
+                say: ctx => {
+                    var est = "простолюдины";
+                    try { est = String(global.TFG_SETTLERS.estateOf(cpOf(ctx).s)) } catch (e) { }
+                    if (est === "знать") return ["Дома я сижу при своём, а тут вижу, как живут другие. Это дороже, чем кажется.",
+                        "И не делай вид, что ты меня нанял. Я пошёл сам."];
+                    if (est === "военные") return ["Мне платят за то, чтобы стоять. А я хотел посмотреть, за что стою.",
+                        "С тобой это видно быстрее."];
+                    return ["Сидеть на одном месте всю жизнь - и помереть, не видев ничего. Нет уж.",
+                        "Да и в поселении от меня толку меньше, чем кажется."];
+                },
+                ask: "Ещё?",
+                opts: [
+                    { label: "А если я тебя заведу на смерть?", go: "risk" },
+                    { label: "Хорошо сказал.", do: ctx => { try { global.TFG_RELATIONS.note(cpOf(ctx).v, ctx.player, cpOf(ctx).s.id, 2, "похвалил спутника") } catch (e) { } }, go: null },
+                ],
+            },
+            fear: {
+                say: ["В пути боятся трёх вещей: воды, темноты и чужой стрелы.",
+                      "Вода хуже всего. Упал - и уже не человек, а поклажа.",
+                      "Я, впрочем, не утону: с тобой-то меня вытащит."],
+                opts: [],
+            },
+            risk: {
+                say: ctx => cpOathed(ctx)
+                    ? ["Заведёшь - значит заведёшь. Мы с тобой связаны клятвой, и на Отмели мне будет с кем поговорить.",
+                       "Это, если ты не знал, половина всего дела."]
+                    : ["Тогда я лягу там, где лёг, и никто меня не помянёт. У меня с тобой нет узла.",
+                       "Можно это поправить, если хочешь. Спроси отдельно."],
+                note: ctx => cpOathed(ctx) ? null : "Он намекает на клятву.",
+                opts: [],
+            },
+        },
+    });
+
+    // ─── Клятва на крови ───
+    add({
+        id: "cp_tk_oath",
+        label: () => "Поклянёмся на крови",
+        hint: () => "Связать себя узлом: по вере это держит душу - и он станет терпеливее.",
+        show: ctx => !!cpOf(ctx) && !cpOathed(ctx),
+        need: ctx => {
+            try { return Number(global.TFG_RELATIONS.opinion(ctx.player, cpOf(ctx).v, cpOf(ctx).s)) >= 40 } catch (e) { return false }
+        },
+        start: "a",
+        steps: {
+            a: {
+                say: ["Клятва на крови? Это не шутка, и после неё не разойдёшься, как расходятся наёмные.",
+                      "Связи держат душу. У кого никого нет, тот на Отмели ждёт один, и ему никто не шепчет.",
+                      "Если мы поклянёмся - у меня будет узел. И у тебя тоже, учти это."],
+                ask: "Что скажешь?",
+                opts: [
+                    { label: "Клянусь.", hint: "Он станет терпеть голод до пяти дней вместо трёх.", go: "done" },
+                    { label: "А что это даёт тебе?", go: "what" },
+                    { label: "Повременим.", go: "later" },
+                ],
+            },
+            what: {
+                say: ["Мне - то, что меня помянут. Приношение у алтаря дойдёт, на обряде я смогу шепнуть.",
+                      "А ещё я перестану считать дни, когда ты забываешь меня кормить. С узлом терпится дольше.",
+                      "Тебе - то же самое, если ляжешь прежде меня."],
+                ask: "Так что?",
+                opts: [
+                    { label: "Клянусь.", go: "done" },
+                    { label: "Повременим.", go: "later" },
+                ],
+            },
+            done: {
+                say: ["Давай руку. Режь свою, я режу свою.",
+                      "Всё. Теперь мы связаны, и развязывать это не вздумай - связь ослабнет, а это хуже, чем не клясться вовсе."],
+                note: "Клятва дана: он будет терпеть голод до пяти дней.",
+                do: ctx => {
+                    var w = cpOf(ctx);
+                    if (!w || !w.s.comp) return;
+                    w.s.comp.oath = true;
+                    try { global.TFG_RELATIONS.note(w.v, ctx.player, w.s.id, 15, "клятва на крови") } catch (e) { }
+                    try { global.TFG_SETTLERS.save() } catch (e) { }
+                    cpLog(w.s.name + " поклялся на крови с " + String(ctx.player.username));
+                },
+                opts: [],
+            },
+            later: {
+                say: ["Как хочешь. Я не навязываюсь."],
+                opts: [],
+            },
+        },
+    });
+
+    // ─── Что ты делаешь на базе ───
+    add({
+        id: "cp_tk_work",
+        label: () => "Что ты делаешь на базе?",
+        hint: () => "Чем он занят, пока тебя нет.",
+        show: ctx => !!cpOf(ctx) && cpModeOf(ctx) === "база",
+        start: "a",
+        steps: {
+            a: {
+                say: ctx => {
+                    var est = "простолюдины";
+                    try { est = String(global.TFG_SETTLERS.estateOf(cpOf(ctx).s)) } catch (e) { }
+                    if (est === "знать") return ["Я при деле. Когда приходит караван, я торгуюсь: беру самое дорогое, что по карману.",
+                        "Монеты - из того сундука, где их больше всего. Из своих я не плачу, не надейся."];
+                    if (est === "военные") return ["Стерегу. Хожу по кругу и смотрю, кто лезет.",
+                        "Пока я тут, у тебя под стеной чужого не будет."];
+                    return ["Жну, что поспело, и отношу в сундук, где зерно.",
+                        "Недозрелое не трогаю - его трогать нельзя, пропадёт."];
+                },
+                ask: "Что уточнишь?",
+                opts: [
+                    { label: "А еда?", go: "food" },
+                    { label: "Куда ты всё складываешь?", go: "where" },
+                    { label: "Ясно.", go: null },
+                ],
+            },
+            food: {
+                say: ctx => cpHungryOf(ctx) > 0
+                    ? ["Вот про еду и разговор. В хранилищах пусто, я " + cpHungryOf(ctx) + " день как не ел.",
+                       "Положи чего-нибудь, иначе я уйду домой. " + (cpOathed(ctx) ? "С клятвой подожду до пятого дня." : "На третий день уйду.")]
+                    : ["Ем дважды в сутки из хранилищ у базы. Беру самое сытное, что найду: похлёбку прежде сухой корки.",
+                       "Пока есть что брать - я тут."],
+                opts: [],
+            },
+            where: {
+                say: ["Зерно и прочую снедь - в тот сундук, где зерна больше всего. Так проще искать потом.",
+                      "Если зерна нигде нет, кладу туда, где больше места. Купленное у каравана - тоже.",
+                      "Инструмент и руду не трогаю: не моё дело."],
+                opts: [],
+            },
+        },
+    });
+
+    // ─── Если я тебя не сберегу ───
+    add({
+        id: "cp_tk_death",
+        label: () => "Если я тебя не сберегу",
+        hint: () => "Что он просит сделать с его телом.",
+        show: ctx => !!cpOf(ctx),
+        need: ctx => {
+            try { return Number(global.TFG_RELATIONS.opinion(ctx.player, cpOf(ctx).v, cpOf(ctx).s)) >= 15 } catch (e) { return false }
+        },
+        start: "a",
+        steps: {
+            a: {
+                say: ["Разговор нужный, и я рад, что ты спросил сам.",
+                      "Лягу - сожги или зарой. До третьего дня. Больше ничего не надо."],
+                ask: "Почему так строго?",
+                opts: [
+                    { label: "Почему до третьего дня?", go: "why" },
+                    { label: "А если не успею?", go: "fail" },
+                    { label: "Сделаю.", do: ctx => { try { global.TFG_RELATIONS.note(cpOf(ctx).v, ctx.player, cpOf(ctx).s.id, 3, "обещал упокоить") } catch (e) { } }, go: "promise" },
+                ],
+            },
+            why: {
+                say: ["Брошенное тело истлеет само, и душа отделится не так, как надо. Такая возвращается тварью.",
+                      "И выйдет она не на чужих, а на тебя - ты ведь рядом будешь."],
+                ask: "Ещё?",
+                opts: [
+                    { label: "А если не успею?", go: "fail" },
+                    { label: "Сделаю.", do: ctx => { try { global.TFG_RELATIONS.note(cpOf(ctx).v, ctx.player, cpOf(ctx).s.id, 3, "обещал упокоить") } catch (e) { } }, go: "promise" },
+                ],
+            },
+            fail: {
+                say: ctx => cpOathed(ctx)
+                    ? ["Тогда плохо, но не до конца. У нас с тобой клятва, а связь держит: меня хоть помянут.",
+                       "Говорят, у кого связей много, того иногда и возвращают. Я на это не рассчитываю, но знать приятно."]
+                    : ["Тогда совсем плохо. Ни узла, ни обряда - и никто меня не достанет.",
+                       "Так что либо приходи за телом, либо давай клясться."],
+                opts: [],
+            },
+            promise: {
+                say: ctx => {
+                    var est = "простолюдины";
+                    try { est = String(global.TFG_SETTLERS.estateOf(cpOf(ctx).s)) } catch (e) { }
+                    if (est === "знать") return ["Положи в камень, если будет камень. Если нет - огонь не хуже.",
+                        "И не вздумай оставить меня в поле ради поклажи."];
+                    if (est === "военные") return ["Я видел, что выходит из брошенных. Потому и говорю не как трус, а как знающий.",
+                        "Руку мне разжимать не придётся - я привычный."];
+                    return ["Вот и ладно. Мне больше ничего и не надо.",
+                        "Дров-то возьми заранее. Их всегда не хватает именно тогда."];
+                },
+                opts: [],
+            },
+        },
+    });
+
+    cpLog("цепочки разговоров со спутником зарегистрированы: 4");
+})()

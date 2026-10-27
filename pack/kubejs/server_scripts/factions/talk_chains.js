@@ -864,6 +864,32 @@ TC_CHAINS.push({
 })
 
 // ─── Встраиваем в окно разговора ─────────────────────────────────────────────
+//
+// Пункты добавляются не только при загрузке: спутники и поручения регистрируют свои цепочки
+// позже (они грузятся после), и для них пункт создаётся в тот же миг - иначе цепочка была бы
+// в списке, но в окне её бы не было.
+
+var TC_MENUS = []
+
+function tcOptionOf(ch) {
+    return {
+        id: ch.id,
+        label: ctx => tcText(ch.label, ctx),
+        hint: ch.hint ? ctx => tcText(ch.hint, ctx) : null,
+        show: ctx => tcAvailable(ctx, ch),
+        run: ctx => tcStep(ctx, ch.id, ch.start),
+    }
+}
+
+/** Вставить пункт перед «Разойтись» во все списки разговора. */
+function tcPutOption(opt) {
+    TC_MENUS.forEach(list => {
+        if (list.some(x => x.id === opt.id)) return
+        var at = list.findIndex(o => o.id === "leave")
+        list.splice(at < 0 ? list.length : at, 0, opt)
+    })
+}
+
 
 ;(() => {
     if (typeof DLG_NPC_OPTIONS === "undefined") return
@@ -887,23 +913,9 @@ TC_CHAINS.push({
         },
     }
 
-    var opts = [resume].concat(TC_CHAINS.map(ch => ({
-        id: ch.id,
-        label: ctx => tcText(ch.label, ctx),
-        hint: ch.hint ? ctx => tcText(ch.hint, ctx) : null,
-        show: ctx => tcAvailable(ctx, ch),
-        run: ctx => tcStep(ctx, ch.id, ch.start),
-    })))
-
-    ;[DLG_NPC_OPTIONS, typeof DLG_OPTIONS !== "undefined" ? DLG_OPTIONS : null].forEach(list => {
-        if (!list) return
-        var at = list.findIndex(o => o.id === "leave")
-        opts.forEach(o => {
-            if (list.some(x => x.id === o.id)) return
-            list.splice(at < 0 ? list.length : at, 0, o)
-            if (at >= 0) at++
-        })
-    })
+    TC_MENUS = [DLG_NPC_OPTIONS, typeof DLG_OPTIONS !== "undefined" ? DLG_OPTIONS : null].filter(l => !!l)
+    tcPutOption(resume)
+    TC_CHAINS.forEach(ch => tcPutOption(tcOptionOf(ch)))
 })()
 
 global.TFG_TALK_CHAINS = {
@@ -911,6 +923,11 @@ global.TFG_TALK_CHAINS = {
     known: player => Object.keys(tcDataOf(player).know),
     sawRise: ctx => tcSawRise(ctx),
     chains: () => TC_CHAINS.map(c => c.id),
-    // другие файлы (спутники, поручения) добавляют свои цепочки до загрузки своих меню
-    add: chain => { if (chain && chain.id && !tcChain(chain.id)) TC_CHAINS.push(chain) },
+    // другие файлы (спутники, поручения) добавляют свои цепочки - пункт в окне появляется сразу
+    add: chain => {
+        if (!chain || !chain.id || tcChain(chain.id)) return false
+        TC_CHAINS.push(chain)
+        try { tcPutOption(tcOptionOf(chain)) } catch (e) { tcLog("пункт для " + chain.id + ": " + e) }
+        return true
+    },
 }
