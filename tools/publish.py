@@ -125,6 +125,7 @@ def main():
     ap.add_argument("--source", required=True)
     ap.add_argument("--version", required=True)
     ap.add_argument("--allow-missing", action="store_true")
+    ap.add_argument("--host-missing", action="store_true", help="файлы без официального источника - в репозиторий")
     a = ap.parse_args()
     tag = "v" + a.version
     raw = f"https://raw.githubusercontent.com/{REPO}/{tag}/pack/"
@@ -159,12 +160,16 @@ def main():
                 hosted.add(p)
             else:
                 missing.append(f"{p}  ({lic or 'лицензия не указана'})")
-                files.append({"path": p, "sha1": sha, "size": size, "url": None, "mode": "keep"})   # не качать и не убирать
-                continue
+                if not a.host_missing:
+                    files.append({"path": p, "sha1": sha, "size": size, "url": None, "mode": "keep"})   # не качать и не убирать
+                    continue
+                hosted.add(p)
         elif not url and p.endswith(".zip") and p.startswith(("resourcepacks/", "tacz/")):
             missing.append(f"{p}  (ресурспак/пакет не найден на Modrinth)")
-            files.append({"path": p, "sha1": sha, "size": size, "url": None, "mode": "keep"})
-            continue
+            if not a.host_missing:
+                files.append({"path": p, "sha1": sha, "size": size, "url": None, "mode": "keep"})
+                continue
+            hosted.add(p)
         elif not url:
             hosted.add(p)
         if p in hosted:
@@ -172,7 +177,7 @@ def main():
         files.append({"path": p, "sha1": sha, "size": size, "url": url,
                       "mode": "merge" if match(p, MERGE) else "force"})
 
-    if missing:
+    if missing and not a.host_missing:
         print("Нет источника (на Modrinth нет, лицензия закрытая) - нужна ссылка в sources.json:")
         for m in missing:
             print("  -", m)
