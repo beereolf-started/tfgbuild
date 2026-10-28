@@ -537,7 +537,10 @@ var RAID_HUSKS = {}   // uuid -> { e, sounds }
 const BR_SOUND_HOSTILE = Java.loadClass("net.minecraft.sounds.SoundSource").HOSTILE.ordinal()
 const BR_ForgeRegistries = Java.loadClass("net.minecraftforge.registries.ForgeRegistries")
 const BR_BuiltInRegistries = Java.loadClass("net.minecraft.core.registries.BuiltInRegistries")
-const BR_BlockPos = Java.loadClass("net.minecraft.core.BlockPos")
+// Имя своё: прежнее BR_BlockPos уже объявлено в factions/bridges.js, а у KubeJS все файлы
+// в одном пространстве имён - из-за повтора ЭТОТ ФАЙЛ ЦЕЛИКОМ не загружался
+// («redeclaration of const BR_BlockPos» в журнале сервера), и роли бандитов не работали.
+const BRL_BlockPos = Java.loadClass("net.minecraft.core.BlockPos")
 const BR_HUSK_VOICE = {
 	"minecraft:entity.husk.ambient": 0, "minecraft:entity.husk.hurt": 1, "minecraft:entity.husk.death": 2,
 	"minecraft:entity.husk.step": 3, "minecraft:entity.husk.converted_to_zombie": 4,
@@ -572,7 +575,7 @@ global.TFG_RAIDER_SOUND = event => {
 	if (!husk) return
 	if (kind === 3) {
 		var p = event.getPosition()
-		var below = event.getLevel().getBlockState(BR_BlockPos.containing(p.x(), p.y() - 0.2, p.z()))
+		var below = event.getLevel().getBlockState(BRL_BlockPos.containing(p.x(), p.y() - 0.2, p.z()))
 		event.setSound(BR_BuiltInRegistries.SOUND_EVENT.wrapAsHolder(below.getSoundType().getStepSound()))
 		return
 	}

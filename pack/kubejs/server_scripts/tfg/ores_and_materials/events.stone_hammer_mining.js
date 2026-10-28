@@ -1,4 +1,8 @@
-// priority: 20
+// priority: 0
+// Было 20 - то есть этот файл грузился РАНЬШЕ gregtech/utility.js, где определён
+// forEachMaterial, и падал на нём в самом начале: «forEachMaterial is not defined».
+// Весь файл из-за этого не работал, и каменный молот не давал руды. Все прочие,
+// кто пользуется forEachMaterial, стоят на нуле - ставим и этот.
 "use strict";
 
 // Stone-age "emergency mining" fallback.
