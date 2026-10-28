@@ -295556,8 +295556,8 @@
   },
   {
    "path": "mods/tfgui-0.1.0.jar",
-   "sha1": "341c1923993c714cdeab8fd7af6aa023585df4e9",
-   "size": 12213140,
+   "sha1": "226ca425cb9d8502798a8a8ea0cc9b6f2f7d8ec2",
+   "size": 12213410,
    "url": "https://raw.githubusercontent.com/beereolf-started/tfgbuild/v38.8/pack/mods/tfgui-0.1.0.jar",
    "mode": "force"
   },
