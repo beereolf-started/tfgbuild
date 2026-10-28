@@ -23,8 +23,13 @@
 
 const CP_MAX = 2
 const CP_HIRE_PRICE = 100
-const CP_FAR = 64                      // дальше этого перенос допустим - но только незаметно
-const CP_RUN_FAR = 24                  // с какого отставания бежит спринтом
+// Замысел (задан пользователем 28.10.2026):
+//   держится не дальше 32 блоков; отстал больше - догоняет; больше 64 - догоняет спринтом;
+//   перенос - только дальше 60 И когда дороги к игроку вообще нет, и никогда на глазах.
+const CP_HOLD = 32                     // дальше этого уже догоняет
+const CP_RUN_FAR = 64                  // дальше этого догоняет спринтом
+const CP_PORT_FAR = 60                 // ближе этого не переносим вообще, сколько бы ни ждал
+const CP_NOPATH = 60                   // столько тиков без дороги, прежде чем счесть, что её нет
 const CP_UNSEEN = 400                  // сколько тиков игрок не должен на него смотреть (20 секунд)
 const CP_SEEN_DOT = 0.45               // насколько прямо игрок смотрит, чтобы счесть «видит»
 const CP_SEEN_R = 96                   // дальше этого не видит всё равно
@@ -98,11 +103,20 @@ function cpMark(e, on) {
  * мира. Ставим его при найме и подтверждаем на каждом ходу - на случай, если житель был создан
  * заново из записи поселения и признак не достался.
  */
+const CP_KEPT = {}
 function cpKeep(e) {
-    try { e.setPersistenceRequired(); return } catch (err) { }
-    // запасной путь, если имя способа в этой сборке другое
-    try { e.persistentData.putBoolean("tfg_keep", true) } catch (err) { }
-    try { e.setNoAi(false) } catch (err) { }
+    var u = String(e.uuid)
+    if (CP_KEPT[u]) return
+    try { e.setPersistenceRequired(); CP_KEPT[u] = 1; return } catch (err) { }
+    // Способа нет - ставим признак командой. Команды есть всегда, а имена способов в этой
+    // сборке KubeJS местами другие, и молчаливый отказ уже стоил нам пропадающих спутников
+    // (ровно та же ловушка была со взглядом игрока).
+    try {
+        if (!SERVER) return
+        var at = "execute positioned " + e.getX() + " " + e.getY() + " " + e.getZ() + " run "
+        SERVER.runCommandSilent(at + 'data merge entity @e[tag=tfg_companion,distance=..1,limit=1,sort=nearest] {PersistenceRequired:1b}')
+        CP_KEPT[u] = 1
+    } catch (err) { }
 }
 
 // ─── Позвать, отпустить, поселить на базе ────────────────────────────────────
@@ -201,16 +215,93 @@ const CP_BARK = ["Далеко ещё?", "Хорошая погода для д�
  * Смотрит ли игрок на спутника: взгляд в его сторону, недалеко и без препятствий.
  * Нужно для того, чтобы перенос никогда не случался у игрока на глазах.
  */
+/**
+ * Куда смотрит игрок. Прежде здесь звался getLookAngle(), которого в этой сборке KubeJS НЕТ:
+ * вызов падал, падение проглатывалось, и cpSeen возвращал «не смотрит» ВСЕГДА. Из-за этого
+ * перенос спутника был разрешён постоянно, и он прыгал на глазах у игрока.
+ *
+ * Поэтому считаем вектор взгляда сами, из углов поворота, и пробуем все имена, какие бывают.
+ * Не вышло ничего - возвращаем null, а зовущий считает, что игрок СМОТРИТ: лучше не перенести,
+ * чем перенести у него перед носом.
+ */
+function cpLook(p) {
+    try {
+        var l = p.getLookAngle()
+        if (l && isFinite(Number(l.x))) return { x: Number(l.x), y: Number(l.y), z: Number(l.z) }
+    } catch (err) { }
+    var yaw = NaN, pitch = NaN
+    try { yaw = Number(p.getYaw()) } catch (err) { }
+    if (!isFinite(yaw)) { try { yaw = Number(p.getYRot()) } catch (err) { } }
+    if (!isFinite(yaw)) { try { yaw = Number(p.yaw) } catch (err) { } }
+    try { pitch = Number(p.getPitch()) } catch (err) { }
+    if (!isFinite(pitch)) { try { pitch = Number(p.getXRot()) } catch (err) { } }
+    if (!isFinite(pitch)) { try { pitch = Number(p.pitch) } catch (err) { } }
+    if (!isFinite(yaw) || !isFinite(pitch)) return null
+    var ry = yaw * Math.PI / 180, rp = pitch * Math.PI / 180, cp = Math.cos(rp)
+    return { x: -Math.sin(ry) * cp, y: -Math.sin(rp), z: Math.cos(ry) * cp }
+}
+
 function cpSeen(p, e) {
     var dx = e.getX() - p.getX(), dy = (e.getY() + 1) - (p.getY() + 1.6), dz = e.getZ() - p.getZ()
     var d = Math.sqrt(dx * dx + dy * dy + dz * dz)
     if (d > CP_SEEN_R || d < 0.01) return false
-    var look = null
-    try { look = p.getLookAngle() } catch (err) { return false }
-    if (!look) return false
+    var look = cpLook(p)
+    if (!look) return true                       // направление неизвестно - считаем, что смотрит
     var dot = (dx / d) * look.x + (dy / d) * look.y + (dz / d) * look.z
     if (dot < CP_SEEN_DOT) return false
     try { return !!p.hasLineOfSight(e) } catch (err) { return true }
+}
+
+/**
+ * ДОРОГИ НЕТ. Перенос разрешаем только когда спутник и правда не может прийти: поиск пути
+ * (у игры он и есть Дейкстра по узлам проходимости) не находит дорогу CP_NOPATH тиков подряд.
+ * Один неудачный расчёт за повод не берём: путь часто теряется на один тик, когда игрок
+ * в прыжке, в лодке или за дверью.
+ */
+const CP_NOPATH_AT = {}
+function cpNoPath(e, p, now) {
+    var u = String(e.uuid)
+    var has = false
+    try {
+        var nav = e.getNavigation()
+        var path = nav.createPath(p.blockPosition(), 1)
+        has = !!path && path.canReach()
+    } catch (err) {
+        // Не смогли спросить дорогу. Раньше считалось «дорога есть» - и перенос не случался
+        // НИКОГДА, то есть отставший спутник терялся навсегда. Теперь наоборот: считаем, что
+        // дороги нет. Опасности нет - перенос всё равно требует отставания больше 60 блоков
+        // и того, чтобы игрок не смотрел 20 секунд.
+        if (CP_NOPATH_AT[u] === undefined) { CP_NOPATH_AT[u] = now; return false }
+        return now - CP_NOPATH_AT[u] >= CP_NOPATH
+    }
+    if (has) { delete CP_NOPATH_AT[u]; return false }
+    if (CP_NOPATH_AT[u] === undefined) { CP_NOPATH_AT[u] = now; return false }
+    return now - CP_NOPATH_AT[u] >= CP_NOPATH
+}
+
+/**
+ * НЕЛЕПАЯ СМЕРТЬ ИСКЛЮЧЕНА. Спутник не тонет, не горит в лаве насмерть, не каменеет от взгляда
+ * гаргоны и не гибнет от падения: всё это случалось, пока он догонял игрока по чужой дороге.
+ * Убить его можно только в бою - и даже тогда он восстанавливается, поэтому гибель возможна
+ * лишь в пределах одной схватки.
+ */
+const CP_REGEN_EVERY = 40               // раз во сколько тиков прибавлять здоровье (2 секунды)
+const CP_REGEN = 1                      // сколько прибавлять за раз
+function cpGuard(e, now) {
+    try { e.setAirSupply(300) } catch (err) { }                  // не тонет
+    try { if (e.isOnFire()) e.extinguish() } catch (err) { }       // не горит
+    try { e.setTicksFrozen(0) } catch (err) { }                    // не замерзает
+    try { e.fallDistance = 0 } catch (err) { }                     // не разбивается при догоне
+    // взгляд гаргоны: она каменит по метке; снимаем её сразу
+    try { if (e.persistentData.getInt("gorgon_stare") !== 0) e.persistentData.putInt("gorgon_stare", 0) } catch (err) { }
+    try { e.removeEffect("minecraft:wither") } catch (err) { }
+    try { e.removeEffect("minecraft:poison") } catch (err) { }
+    if (now % CP_REGEN_EVERY === 0) {
+        try {
+            var hp = Number(e.getHealth()), max = Number(e.getMaxHealth())
+            if (isFinite(hp) && isFinite(max) && hp > 0 && hp < max) e.setHealth(Math.min(max, hp + CP_REGEN))
+        } catch (err) { }
+    }
 }
 
 /** Можно ли переносить: только если игрок давно на него не смотрел. */
@@ -224,9 +315,11 @@ function cpMayPort(p, e, now) {
 function cpPlaceNear(level, p, e) {
     var back = null;
     try {
-        var look = p.getLookAngle()
-        var l = Math.sqrt(look.x * look.x + look.z * look.z)
-        if (l > 0.01) back = { x: -look.x / l, z: -look.z / l }
+        var look = cpLook(p)
+        if (look) {
+            var l = Math.sqrt(look.x * look.x + look.z * look.z)
+            if (l > 0.01) back = { x: -look.x / l, z: -look.z / l }
+        }
     } catch (err) { }
     if (!back) { var a = Math.random() * 6.283185307179586; back = { x: Math.cos(a), z: Math.sin(a) } }
     var spread = (Math.random() - 0.5) * 1.5
@@ -243,6 +336,7 @@ function cpFollowTick(server) {
     cpAll(level).forEach(c => {
         var e = c.e, s = c.s
         cpKeep(e)                                   // подтверждаем на каждом ходу: игра не должна его стереть
+        cpGuard(e, now)                             // не тонет, не горит, не каменеет, восстанавливается
         if (s.comp.mode === "база") return cpBaseStep(level, c, now)
         var p = cpOwner(server, s)
         if (!p || s.comp.mode === "ждёт") return
@@ -263,14 +357,18 @@ function cpFollowTick(server) {
                 // места не нашлось (конь, одноместный аппарат) - бежит следом, а не переносится
             } else if (e.isPassenger()) e.stopRiding()
         } catch (err) { }
-        // вода, лава и большое отставание - повод перенести, но не на глазах у игрока
-        var needPort = e.isInWater() || e.isInLava() || d2 > CP_FAR * CP_FAR
-        if (needPort && cpMayPort(p, e, now)) return cpPlaceNear(level, p, e)
+        // ПЕРЕНОС - крайняя мера. Только если отстал дальше CP_PORT_FAR И дороги к игроку нет
+        // (поиск пути ничего не нашёл CP_NOPATH тиков подряд). Вода и лава больше поводом не
+        // считаются: спутник в них не гибнет (cpGuard), а переносить его из лужи у игрока на
+        // глазах - ровно то, что выглядело поломкой.
+        if (d2 > CP_PORT_FAR * CP_PORT_FAR && cpNoPath(e, p, now) && cpMayPort(p, e, now))
+            return cpPlaceNear(level, p, e)
         // застрял: дальше шести блоков и за пять секунд не сдвинулся
+        // Прежде отсюда уходил перенос «застрял и не сдвинулся» - он и срабатывал в пяти шагах
+        // от игрока. Теперь застревание только помечается: переносит лишь отсутствие дороги.
         var st = CP_STUCK[u]
         if (d2 > 36) {
             if (!st || Math.abs(st.x - e.getX()) + Math.abs(st.z - e.getZ()) > 1) CP_STUCK[u] = { x: e.getX(), z: e.getZ(), at: now }
-            else if (now - st.at > 100 && cpMayPort(p, e, now)) { delete CP_STUCK[u]; return cpPlaceNear(level, p, e) }
         } else delete CP_STUCK[u]
         // драка - не мешаем; иначе - следом
         try { if (e.getTarget && e.getTarget()) return } catch (err) { }
@@ -278,7 +376,8 @@ function cpFollowTick(server) {
             if (d2 > CP_NEAR * CP_NEAR) {
                 // 1.0 - шаг, дальше - спринт: иначе за бегущим игроком не поспеть, и его
                 // приходилось бы переносить, что и выглядело как поломка
-                var sp = d2 > CP_RUN_FAR * CP_RUN_FAR ? 2.4 : d2 > 144 ? 1.8 : d2 > 36 ? 1.4 : 1.0
+                // до 32 - шаг, за 32 прибавляет, за 64 - спринт
+                var sp = d2 > CP_RUN_FAR * CP_RUN_FAR ? 2.4 : d2 > CP_HOLD * CP_HOLD ? 1.8 : d2 > 144 ? 1.4 : 1.0
                 e.getNavigation().moveTo(p.getX(), p.getY(), p.getZ(), sp)
                 try { e.setSprinting(sp >= 1.8) } catch (err) { }
             } else {
