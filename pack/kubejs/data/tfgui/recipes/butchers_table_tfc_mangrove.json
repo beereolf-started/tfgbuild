@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "butchers_table",
+  "pattern": [
+    "aaa",
+    "bcb",
+    "b b"
+  ],
+  "key": {
+    "a": {
+      "item": "tfc:wood/stripped_wood/mangrove"
+    },
+    "b": {
+      "item": "tfc:wood/planks/mangrove"
+    },
+    "c": {
+      "item": "tfc:wood/planks/mangrove_slab"
+    }
+  },
+  "result": {
+    "item": "butchery:mangrove_butchers_table",
+    "count": 1
+  }
+}

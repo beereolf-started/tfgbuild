@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "butchers_table",
+  "pattern": [
+    "aaa",
+    "bcb",
+    "b b"
+  ],
+  "key": {
+    "a": {
+      "item": "tfc:wood/stripped_wood/kapok"
+    },
+    "b": {
+      "item": "tfc:wood/planks/kapok"
+    },
+    "c": {
+      "item": "tfc:wood/planks/kapok_slab"
+    }
+  },
+  "result": {
+    "item": "butchery:jungle_butchers_table",
+    "count": 1
+  }
+}

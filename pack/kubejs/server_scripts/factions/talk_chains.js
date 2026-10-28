@@ -778,6 +778,7 @@ PlayerEvents.respawned(event => {
 
 TC_CHAINS.push({
     id: "tc_chosen",
+    group: null,
     label: () => "Ты видел, как я поднялся",
     hint: () => "Он это помнит. И не знает, радоваться ему или бежать.",
     show: ctx => tcSawRise(ctx) > 0,
@@ -871,6 +872,50 @@ TC_CHAINS.push({
 
 var TC_MENUS = []
 
+// Темы складываются в группы, иначе список вариантов в окне не прочитать. У цепочки может быть
+// своё имя группы в поле group; group: null оставляет её отдельным пунктом (это для личных
+// разговоров - клятва, «ты видел, как я поднялся» - их прятать в «расскажи мне о» неуместно).
+const TC_GROUP_DEFAULT = "Расскажи мне о…"
+var TC_GROUPS = {}
+
+function tcGroupOf(ch) {
+    return ch.group === null ? null : String(ch.group || TC_GROUP_DEFAULT)
+}
+
+/** Пункт-группа: открывает выбор из доступных сейчас тем. */
+function tcGroupOption(name) {
+    var id = "tc_grp_" + Object.keys(TC_GROUPS).length
+    return {
+        id: id,
+        label: () => name,
+        hint: ctx => {
+            var n = TC_GROUPS[name].filter(ch => tcAvailable(ctx, ch)).length
+            return n === 1 ? "Одна тема." : "Тем на выбор: " + n + "."
+        },
+        show: ctx => TC_GROUPS[name].some(ch => tcAvailable(ctx, ch)),
+        run: ctx => {
+            var list = TC_GROUPS[name].filter(ch => tcAvailable(ctx, ch))
+            if (!list.length) return
+            if (list.length === 1) return tcStep(ctx, list[0].id, list[0].start)
+            dlgChoice(ctx, "О чём рассказать?", list.map(ch => ({
+                label: String(tcText(ch.label, ctx)),
+                hint: ch.hint ? String(tcText(ch.hint, ctx)) : null,
+                run: c => tcStep(c, ch.id, ch.start),
+            })))
+        },
+    }
+}
+
+/** Разложить цепочку: в свою группу или отдельным пунктом. */
+function tcPlace(ch) {
+    var name = tcGroupOf(ch)
+    if (name === null) return tcPutOption(tcOptionOf(ch))
+    if (!TC_GROUPS[name]) {
+        TC_GROUPS[name] = [ch]
+        tcPutOption(tcGroupOption(name))
+    } else if (TC_GROUPS[name].indexOf(ch) < 0) TC_GROUPS[name].push(ch)
+}
+
 function tcOptionOf(ch) {
     return {
         id: ch.id,
@@ -915,7 +960,7 @@ function tcPutOption(opt) {
 
     TC_MENUS = [DLG_NPC_OPTIONS, typeof DLG_OPTIONS !== "undefined" ? DLG_OPTIONS : null].filter(l => !!l)
     tcPutOption(resume)
-    TC_CHAINS.forEach(ch => tcPutOption(tcOptionOf(ch)))
+    TC_CHAINS.forEach(ch => tcPlace(ch))
 })()
 
 global.TFG_TALK_CHAINS = {
@@ -927,7 +972,7 @@ global.TFG_TALK_CHAINS = {
     add: chain => {
         if (!chain || !chain.id || tcChain(chain.id)) return false
         TC_CHAINS.push(chain)
-        try { tcPutOption(tcOptionOf(chain)) } catch (e) { tcLog("пункт для " + chain.id + ": " + e) }
+        try { tcPlace(chain) } catch (e) { tcLog("пункт для " + chain.id + ": " + e) }
         return true
     },
 }

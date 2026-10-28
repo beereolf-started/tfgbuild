@@ -23,7 +23,12 @@
 
 const CP_MAX = 2
 const CP_HIRE_PRICE = 100
-const CP_FAR = 32
+const CP_FAR = 64                      // дальше этого перенос допустим - но только незаметно
+const CP_RUN_FAR = 24                  // с какого отставания бежит спринтом
+const CP_UNSEEN = 400                  // сколько тиков игрок не должен на него смотреть (20 секунд)
+const CP_SEEN_DOT = 0.45               // насколько прямо игрок смотрит, чтобы счесть «видит»
+const CP_SEEN_R = 96                   // дальше этого не видит всё равно
+const CP_SEEN_AT = {}                  // uuid -> когда игрок последний раз его видел
 const CP_NEAR = 4
 const CP_BASE_R = 20
 const CP_DAY = 24000
@@ -169,12 +174,48 @@ const CP_BARK = ["Далеко ещё?", "Хорошая погода для д�
     "А ты знаешь, куда мы идём? Я - нет.", "Будь начеку. Тут всякое водится.", "Хорошо идти не одному.", "Привал бы скоро.",
     "Я тебя в обиду не дам.", "Смотри под ноги, тут камни."]
 
+/**
+ * Перенести спутника к игроку - ЗА СПИНУ, а не перед лицом: иначе он то и дело возникает прямо
+ * перед глазами, и это выглядит сломанным даже когда работает правильно.
+ */
+/**
+ * Смотрит ли игрок на спутника: взгляд в его сторону, недалеко и без препятствий.
+ * Нужно для того, чтобы перенос никогда не случался у игрока на глазах.
+ */
+function cpSeen(p, e) {
+    var dx = e.getX() - p.getX(), dy = (e.getY() + 1) - (p.getY() + 1.6), dz = e.getZ() - p.getZ()
+    var d = Math.sqrt(dx * dx + dy * dy + dz * dz)
+    if (d > CP_SEEN_R || d < 0.01) return false
+    var look = null
+    try { look = p.getLookAngle() } catch (err) { return false }
+    if (!look) return false
+    var dot = (dx / d) * look.x + (dy / d) * look.y + (dz / d) * look.z
+    if (dot < CP_SEEN_DOT) return false
+    try { return !!p.hasLineOfSight(e) } catch (err) { return true }
+}
+
+/** Можно ли переносить: только если игрок давно на него не смотрел. */
+function cpMayPort(p, e, now) {
+    var u = String(e.uuid)
+    if (cpSeen(p, e)) { CP_SEEN_AT[u] = now; return false }
+    var seen = CP_SEEN_AT[u]
+    return seen === undefined || now - seen > CP_UNSEEN
+}
+
 function cpPlaceNear(level, p, e) {
-    var a = Math.random() * 6.283185307179586
-    var x = Math.floor(p.getX() + Math.cos(a) * 2), z = Math.floor(p.getZ() + Math.sin(a) * 2)
+    var back = null;
+    try {
+        var look = p.getLookAngle()
+        var l = Math.sqrt(look.x * look.x + look.z * look.z)
+        if (l > 0.01) back = { x: -look.x / l, z: -look.z / l }
+    } catch (err) { }
+    if (!back) { var a = Math.random() * 6.283185307179586; back = { x: Math.cos(a), z: Math.sin(a) } }
+    var spread = (Math.random() - 0.5) * 1.5
+    var x = Math.floor(p.getX() + back.x * 3 + spread), z = Math.floor(p.getZ() + back.z * 3 - spread)
     var y = Number(p.getY())
     try { var t = stTop(level, x, z); if (Math.abs(t + 1 - y) < 6) y = t + 1 } catch (err) { }
-    try { e.teleportTo(x + 0.5, y, z + 0.5); e.getNavigation().stop() } catch (err) { }
+    try { e.teleportTo(x + 0.5, y, z + 0.5) } catch (err) { }
+    // навигацию не сбрасываем: пусть сразу идёт следом, а не стоит на месте
 }
 
 function cpFollowTick(server) {
@@ -198,22 +239,32 @@ function cpFollowTick(server) {
             if (p.isPassenger()) {
                 var veh = p.getVehicle()
                 if (!e.isPassenger() && d2 < 64) e.startRiding(veh, false)
-                if (!e.isPassenger() && d2 > 256) cpPlaceNear(level, p, e)
-                return
+                if (e.isPassenger()) return
+                // места не нашлось (конь, одноместный аппарат) - бежит следом, а не переносится
             } else if (e.isPassenger()) e.stopRiding()
         } catch (err) { }
-        if (e.isInWater() || e.isInLava() || d2 > CP_FAR * CP_FAR) return cpPlaceNear(level, p, e)
+        // вода, лава и большое отставание - повод перенести, но не на глазах у игрока
+        var needPort = e.isInWater() || e.isInLava() || d2 > CP_FAR * CP_FAR
+        if (needPort && cpMayPort(p, e, now)) return cpPlaceNear(level, p, e)
         // застрял: дальше шести блоков и за пять секунд не сдвинулся
         var st = CP_STUCK[u]
         if (d2 > 36) {
             if (!st || Math.abs(st.x - e.getX()) + Math.abs(st.z - e.getZ()) > 1) CP_STUCK[u] = { x: e.getX(), z: e.getZ(), at: now }
-            else if (now - st.at > 100) { delete CP_STUCK[u]; return cpPlaceNear(level, p, e) }
+            else if (now - st.at > 100 && cpMayPort(p, e, now)) { delete CP_STUCK[u]; return cpPlaceNear(level, p, e) }
         } else delete CP_STUCK[u]
         // драка - не мешаем; иначе - следом
         try { if (e.getTarget && e.getTarget()) return } catch (err) { }
         try {
-            if (d2 > CP_NEAR * CP_NEAR) e.getNavigation().moveTo(p.getX(), p.getY(), p.getZ(), d2 > 144 ? 1.3 : 1.0)
-            else e.getNavigation().stop()
+            if (d2 > CP_NEAR * CP_NEAR) {
+                // 1.0 - шаг, дальше - спринт: иначе за бегущим игроком не поспеть, и его
+                // приходилось бы переносить, что и выглядело как поломка
+                var sp = d2 > CP_RUN_FAR * CP_RUN_FAR ? 2.4 : d2 > 144 ? 1.8 : d2 > 36 ? 1.4 : 1.0
+                e.getNavigation().moveTo(p.getX(), p.getY(), p.getZ(), sp)
+                try { e.setSprinting(sp >= 1.8) } catch (err) { }
+            } else {
+                try { e.setSprinting(false) } catch (err) { }
+            }
+            if (d2 <= CP_NEAR * CP_NEAR) e.getNavigation().stop()
         } catch (err) { }
         // разговор в пути
         if (d2 < 100 && (!CP_BARK_AT[u] || now - CP_BARK_AT[u] > 4000) && Math.random() < 0.05) {
@@ -875,6 +926,7 @@ function cpHungryOf(ctx) {
     // ─── Как тебе дорога ───
     add({
         id: "cp_tk_road",
+        group: null,
         label: () => "Как тебе дорога?",
         hint: () => "О пути, об усталости и о том, что он думает про тебя.",
         show: ctx => !!cpOf(ctx) && cpModeOf(ctx) !== "база",
@@ -943,6 +995,7 @@ function cpHungryOf(ctx) {
     // ─── Клятва на крови ───
     add({
         id: "cp_tk_oath",
+        group: null,
         label: () => "Поклянёмся на крови",
         hint: () => "Связать себя узлом: по вере это держит душу - и он станет терпеливее.",
         show: ctx => !!cpOf(ctx) && !cpOathed(ctx),
@@ -1039,6 +1092,7 @@ function cpHungryOf(ctx) {
     // ─── Если я тебя не сберегу ───
     add({
         id: "cp_tk_death",
+        group: null,
         label: () => "Если я тебя не сберегу",
         hint: () => "Что он просит сделать с его телом.",
         show: ctx => !!cpOf(ctx),

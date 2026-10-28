@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "butchers_table",
+  "pattern": [
+    "aaa",
+    "bcb",
+    "b b"
+  ],
+  "key": {
+    "a": {
+      "item": "tfc:wood/stripped_wood/chestnut"
+    },
+    "b": {
+      "item": "tfc:wood/planks/chestnut"
+    },
+    "c": {
+      "item": "tfc:wood/planks/chestnut_slab"
+    }
+  },
+  "result": {
+    "item": "butchery:oak_butchers_table",
+    "count": 1
+  }
+}

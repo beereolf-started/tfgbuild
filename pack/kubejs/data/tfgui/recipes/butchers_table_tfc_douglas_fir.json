@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "butchers_table",
+  "pattern": [
+    "aaa",
+    "bcb",
+    "b b"
+  ],
+  "key": {
+    "a": {
+      "item": "tfc:wood/stripped_wood/douglas_fir"
+    },
+    "b": {
+      "item": "tfc:wood/planks/douglas_fir"
+    },
+    "c": {
+      "item": "tfc:wood/planks/douglas_fir_slab"
+    }
+  },
+  "result": {
+    "item": "butchery:spruce_butchers_table",
+    "count": 1
+  }
+}

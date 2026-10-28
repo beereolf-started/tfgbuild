@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "aaa",
+    "bcb",
+    "b b"
+  ],
+  "key": {
+    "a": {
+      "item": "tfc:large_prepared_hide"
+    },
+    "b": {
+      "tag": "minecraft:planks"
+    },
+    "c": {
+      "tag": "forge:tools/knives"
+    }
+  },
+  "result": {
+    "item": "butchery:taxidermy_table",
+    "count": 1
+  }
+}

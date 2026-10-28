@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "butchers_table",
+  "pattern": [
+    "aaa",
+    "bcb",
+    "b b"
+  ],
+  "key": {
+    "a": {
+      "item": "tfc:wood/stripped_wood/ash"
+    },
+    "b": {
+      "item": "tfc:wood/planks/ash"
+    },
+    "c": {
+      "item": "tfc:wood/planks/ash_slab"
+    }
+  },
+  "result": {
+    "item": "butchery:birch_butchers_table",
+    "count": 1
+  }
+}

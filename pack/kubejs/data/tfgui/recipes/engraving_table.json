@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "tag": "tfg:mcw_tables"
+    },
+    {
+      "tag": "tfc:chisels"
+    },
+    {
+      "item": "tfc:lens"
+    }
+  ],
+  "result": {
+    "item": "tfgui:engraving_table",
+    "count": 1
+  }
+}

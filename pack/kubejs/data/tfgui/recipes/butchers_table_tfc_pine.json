@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "butchers_table",
+  "pattern": [
+    "aaa",
+    "bcb",
+    "b b"
+  ],
+  "key": {
+    "a": {
+      "item": "tfc:wood/stripped_wood/pine"
+    },
+    "b": {
+      "item": "tfc:wood/planks/pine"
+    },
+    "c": {
+      "item": "tfc:wood/planks/pine_slab"
+    }
+  },
+  "result": {
+    "item": "butchery:spruce_butchers_table",
+    "count": 1
+  }
+}

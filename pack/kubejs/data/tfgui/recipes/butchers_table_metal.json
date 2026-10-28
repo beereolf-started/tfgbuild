@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "butchers_table",
+  "pattern": [
+    "aaa",
+    "b b",
+    "b b"
+  ],
+  "key": {
+    "a": {
+      "tag": "forge:plates/wrought_iron"
+    },
+    "b": {
+      "tag": "forge:rods/wrought_iron"
+    }
+  },
+  "result": {
+    "item": "butchery:metal_butchers_table",
+    "count": 1
+  }
+}

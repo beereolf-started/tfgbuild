@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "butchers_table",
+  "pattern": [
+    "aaa",
+    "bcb",
+    "b b"
+  ],
+  "key": {
+    "a": {
+      "item": "afc:wood/stripped_wood/teak"
+    },
+    "b": {
+      "item": "afc:wood/planks/teak"
+    },
+    "c": {
+      "item": "afc:wood/planks/teak_slab"
+    }
+  },
+  "result": {
+    "item": "butchery:jungle_butchers_table",
+    "count": 1
+  }
+}
