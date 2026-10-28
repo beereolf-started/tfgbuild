@@ -129,7 +129,7 @@
 	[Mobs.Pixies]
 		#1 out of this number chance per chunk for generation
 		#Range: 1 ~ 10000
-		"Spawn Pixies Chance" = 600
+		"Spawn Pixies Chance" = 1200
 		#size of pixie villages
 		#Range: 1 ~ 10000
 		"Pixie Village Size" = 5
@@ -166,7 +166,7 @@
 		"Use Siren Shader" = true
 		#1 out of this number chance per chunk for generation
 		#Range: 1 ~ 10000
-		"Spawn Sirens Chance" = 400
+		"Spawn Sirens Chance" = 1200
 		#how long(in ticks) can a siren use its sing effect on a player, without a cooldown.
 		#Range: 100 ~ 24000
 		"Siren Max Sing Time" = 12000
