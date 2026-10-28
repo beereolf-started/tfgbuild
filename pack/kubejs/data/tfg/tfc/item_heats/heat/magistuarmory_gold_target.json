@@ -1,0 +1,8 @@
+{
+  "ingredient": {
+    "item": "magistuarmory:gold_target"
+  },
+  "heat_capacity": 1.429,
+  "forging_temperature": 636,
+  "welding_temperature": 848
+}

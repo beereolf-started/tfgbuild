@@ -1,0 +1,8 @@
+{
+  "ingredient": {
+    "item": "magistuarmory:tin_target"
+  },
+  "heat_capacity": 1.429,
+  "forging_temperature": 138,
+  "welding_temperature": 184
+}

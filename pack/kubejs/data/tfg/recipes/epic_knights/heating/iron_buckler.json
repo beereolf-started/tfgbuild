@@ -1,0 +1,12 @@
+{
+  "type": "tfc:heating",
+  "ingredient": {
+    "item": "magistuarmory:iron_buckler"
+  },
+  "result_fluid": {
+    "fluid": "gtceu:wrought_iron",
+    "amount": 144
+  },
+  "temperature": 1535,
+  "use_durability": true
+}

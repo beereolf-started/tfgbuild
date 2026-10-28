@@ -1,0 +1,13 @@
+{
+  "type": "tfc:welding",
+  "first_input": {
+    "item": "tfg:iaf_unfinished_armor_silver_metal_helmet"
+  },
+  "second_input": {
+    "tag": "forge:plates/silver"
+  },
+  "tier": 2,
+  "result": {
+    "item": "iceandfire:armor_silver_metal_helmet"
+  }
+}

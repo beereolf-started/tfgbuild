@@ -1,0 +1,31 @@
+{
+  "type": "forge:conditional",
+  "recipes": [
+    {
+      "conditions": [
+        {
+          "type": "forge:false"
+        }
+      ],
+      "recipe": {
+        "type": "minecraft:crafting_shaped",
+        "pattern": [
+          "p p",
+          "l l"
+        ],
+        "key": {
+          "p": {
+            "tag": "forge:plates/steel"
+          },
+          "l": {
+            "item": "minecraft:leather"
+          }
+        },
+        "result": {
+          "item": "magistuarmory:xivcenturyknight_boots",
+          "count": 1
+        }
+      }
+    }
+  ]
+}

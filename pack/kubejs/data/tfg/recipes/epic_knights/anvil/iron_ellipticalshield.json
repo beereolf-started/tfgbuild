@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "tag": "forge:double_plates/wrought_iron"
+  },
+  "result": {
+    "item": "magistuarmory:iron_ellipticalshield"
+  },
+  "tier": 3,
+  "rules": [
+    "upset_last",
+    "bend_second_last",
+    "bend_third_last"
+  ]
+}

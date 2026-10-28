@@ -1,0 +1,12 @@
+{
+  "type": "tfc:heating",
+  "ingredient": {
+    "item": "magistuarmory:iron_ellipticalshield"
+  },
+  "result_fluid": {
+    "fluid": "gtceu:wrought_iron",
+    "amount": 288
+  },
+  "temperature": 1535,
+  "use_durability": true
+}

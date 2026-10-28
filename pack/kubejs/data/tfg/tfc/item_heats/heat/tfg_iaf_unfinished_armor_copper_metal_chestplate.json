@@ -1,0 +1,8 @@
+{
+  "ingredient": {
+    "item": "tfg:iaf_unfinished_armor_copper_metal_chestplate"
+  },
+  "heat_capacity": 2.858,
+  "forging_temperature": 648,
+  "welding_temperature": 864
+}

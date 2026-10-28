@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "tag": "forge:double_plates/steel"
+  },
+  "result": {
+    "item": "tfg:ek_unfinished_xivcenturyknight_leggings"
+  },
+  "tier": 4,
+  "rules": [
+    "bend_any",
+    "draw_any",
+    "hit_any"
+  ]
+}

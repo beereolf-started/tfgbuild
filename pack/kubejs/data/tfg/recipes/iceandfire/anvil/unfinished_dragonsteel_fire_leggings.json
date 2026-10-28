@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "item": "iceandfire:dragonsteel_fire_ingot"
+  },
+  "result": {
+    "item": "tfg:iaf_unfinished_dragonsteel_fire_leggings"
+  },
+  "tier": 6,
+  "rules": [
+    "bend_any",
+    "draw_any",
+    "hit_any"
+  ]
+}

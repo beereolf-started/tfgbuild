@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "tag": "forge:double_plates/silver"
+  },
+  "result": {
+    "item": "tfg:iaf_unfinished_armor_silver_metal_helmet"
+  },
+  "tier": 2,
+  "rules": [
+    "hit_last",
+    "bend_second_last",
+    "bend_third_last"
+  ]
+}

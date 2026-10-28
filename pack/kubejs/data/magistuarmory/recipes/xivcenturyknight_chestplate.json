@@ -1,0 +1,32 @@
+{
+  "type": "forge:conditional",
+  "recipes": [
+    {
+      "conditions": [
+        {
+          "type": "forge:false"
+        }
+      ],
+      "recipe": {
+        "type": "minecraft:crafting_shaped",
+        "pattern": [
+          "p p",
+          "ppp",
+          "ccc"
+        ],
+        "key": {
+          "c": {
+            "tag": "magistuarmory:chainmails/steel"
+          },
+          "p": {
+            "tag": "forge:plates/steel"
+          }
+        },
+        "result": {
+          "item": "magistuarmory:xivcenturyknight_chestplate",
+          "count": 1
+        }
+      }
+    }
+  ]
+}

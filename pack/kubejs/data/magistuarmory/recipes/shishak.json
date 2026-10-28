@@ -1,0 +1,35 @@
+{
+  "type": "forge:conditional",
+  "recipes": [
+    {
+      "conditions": [
+        {
+          "type": "forge:false"
+        }
+      ],
+      "recipe": {
+        "type": "minecraft:crafting_shaped",
+        "pattern": [
+          "iii",
+          "ini",
+          "ccc"
+        ],
+        "key": {
+          "n": {
+            "tag": "forge:nuggets/steel"
+          },
+          "c": {
+            "tag": "magistuarmory:chainmails/steel"
+          },
+          "i": {
+            "tag": "forge:ingots/steel"
+          }
+        },
+        "result": {
+          "item": "magistuarmory:shishak",
+          "count": 1
+        }
+      }
+    }
+  ]
+}

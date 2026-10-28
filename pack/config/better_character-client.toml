@@ -1,0 +1,23 @@
+
+[compatibility]
+	#Use the Better Character composed skin in the vanilla player renderer.
+	#Disable when another mod owns the complete player skin/model pipeline.
+	overridePlayerSkin = true
+	#Use the Better Character slim/default body selection.
+	overridePlayerModel = true
+	#Render the Better Character female chest layer.
+	#Disable if another player-model mod replaces the torso renderer.
+	renderFemaleChest = true
+	#Render the dedicated extended-hair geometry.
+	#Disable if another mod replaces head/hair rendering.
+	renderExtendedHair = true
+	#Hide chest geometry while chest armor is equipped to prevent clipping.
+	hideChestUnderArmor = true
+	#Hide extended hair while a helmet is equipped.
+	hideExtendedHairUnderHelmet = false
+	#GPU resolution of composed player skins. Source artwork always remains 2048px.
+	#2048 = maximum quality, 1024/512 substantially reduce memory on crowded servers.
+	#A restart or resource reload is recommended after changing this value.
+	#Range: 512 ~ 2048
+	composedTextureResolution = 2048
+

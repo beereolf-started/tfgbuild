@@ -1,0 +1,13 @@
+{
+  "type": "tfc:welding",
+  "first_input": {
+    "item": "tfg:iaf_unfinished_dragonsteel_lightning_chestplate"
+  },
+  "second_input": {
+    "item": "iceandfire:dragonsteel_lightning_ingot"
+  },
+  "tier": 6,
+  "result": {
+    "item": "iceandfire:dragonsteel_lightning_chestplate"
+  }
+}

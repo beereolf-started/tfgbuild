@@ -1,0 +1,13 @@
+{
+  "type": "tfc:welding",
+  "first_input": {
+    "item": "tfg:iaf_unfinished_dragonsteel_ice_boots"
+  },
+  "second_input": {
+    "item": "iceandfire:dragonsteel_ice_ingot"
+  },
+  "tier": 6,
+  "result": {
+    "item": "iceandfire:dragonsteel_ice_boots"
+  }
+}

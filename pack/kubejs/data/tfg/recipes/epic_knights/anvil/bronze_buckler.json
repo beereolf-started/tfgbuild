@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "tag": "forge:plates/bronze"
+  },
+  "result": {
+    "item": "magistuarmory:bronze_buckler"
+  },
+  "tier": 2,
+  "rules": [
+    "upset_last",
+    "bend_second_last",
+    "bend_third_last"
+  ]
+}

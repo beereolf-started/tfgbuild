@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "item": "iceandfire:dragonsteel_lightning_ingot"
+  },
+  "result": {
+    "item": "tfg:iaf_unfinished_dragonsteel_lightning_helmet"
+  },
+  "tier": 6,
+  "rules": [
+    "hit_last",
+    "bend_second_last",
+    "bend_third_last"
+  ]
+}

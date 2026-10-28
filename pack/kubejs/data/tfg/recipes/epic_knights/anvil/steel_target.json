@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "tag": "forge:plates/steel"
+  },
+  "result": {
+    "item": "magistuarmory:steel_target"
+  },
+  "tier": 4,
+  "rules": [
+    "upset_last",
+    "bend_second_last",
+    "bend_third_last"
+  ]
+}

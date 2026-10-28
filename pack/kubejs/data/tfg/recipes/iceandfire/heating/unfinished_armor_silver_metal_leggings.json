@@ -1,0 +1,12 @@
+{
+  "type": "tfc:heating",
+  "ingredient": {
+    "item": "tfg:iaf_unfinished_armor_silver_metal_leggings"
+  },
+  "result_fluid": {
+    "fluid": "gtceu:silver",
+    "amount": 288
+  },
+  "temperature": 961,
+  "use_durability": true
+}

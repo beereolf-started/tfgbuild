@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "tag": "forge:plates/tin"
+  },
+  "result": {
+    "item": "magistuarmory:tin_target"
+  },
+  "tier": 1,
+  "rules": [
+    "upset_last",
+    "bend_second_last",
+    "bend_third_last"
+  ]
+}

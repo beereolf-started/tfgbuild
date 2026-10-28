@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "tag": "forge:double_plates/gold"
+  },
+  "result": {
+    "item": "magistuarmory:gold_kiteshield"
+  },
+  "tier": 2,
+  "rules": [
+    "upset_last",
+    "bend_second_last",
+    "bend_third_last"
+  ]
+}

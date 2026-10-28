@@ -1,0 +1,8 @@
+{
+  "ingredient": {
+    "item": "tfg:iaf_unfinished_dragonsteel_ice_helmet"
+  },
+  "heat_capacity": 1.429,
+  "forging_temperature": 1000,
+  "welding_temperature": 1334
+}

@@ -1,0 +1,8 @@
+{
+  "ingredient": {
+    "item": "magistuarmory:bronze_rondache"
+  },
+  "heat_capacity": 2.858,
+  "forging_temperature": 570,
+  "welding_temperature": 760
+}

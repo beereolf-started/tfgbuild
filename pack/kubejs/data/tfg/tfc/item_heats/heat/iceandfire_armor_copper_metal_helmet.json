@@ -1,0 +1,8 @@
+{
+  "ingredient": {
+    "item": "iceandfire:armor_copper_metal_helmet"
+  },
+  "heat_capacity": 4.287,
+  "forging_temperature": 648,
+  "welding_temperature": 864
+}

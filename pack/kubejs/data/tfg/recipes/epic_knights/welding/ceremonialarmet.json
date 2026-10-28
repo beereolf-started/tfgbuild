@@ -1,0 +1,13 @@
+{
+  "type": "tfc:welding",
+  "first_input": {
+    "item": "magistuarmory:armet"
+  },
+  "second_input": {
+    "tag": "forge:plates/gold"
+  },
+  "tier": 4,
+  "result": {
+    "item": "magistuarmory:ceremonialarmet"
+  }
+}

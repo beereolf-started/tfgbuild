@@ -1,0 +1,13 @@
+{
+  "type": "tfc:welding",
+  "first_input": {
+    "item": "tfg:iaf_unfinished_armor_copper_metal_chestplate"
+  },
+  "second_input": {
+    "tag": "forge:double_plates/copper"
+  },
+  "tier": 1,
+  "result": {
+    "item": "iceandfire:armor_copper_metal_chestplate"
+  }
+}

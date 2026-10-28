@@ -1,0 +1,31 @@
+{
+  "type": "forge:conditional",
+  "recipes": [
+    {
+      "conditions": [
+        {
+          "type": "forge:false"
+        }
+      ],
+      "recipe": {
+        "type": "minecraft:crafting_shaped",
+        "pattern": [
+          "mm ",
+          "mmh"
+        ],
+        "key": {
+          "m": {
+            "tag": "forge:gems/diamond"
+          },
+          "h": {
+            "tag": "forge:ingots/steel"
+          }
+        },
+        "result": {
+          "item": "magistuarmory:diamond_target",
+          "count": 1
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "type": "tfc:anvil",
+  "input": {
+    "tag": "forge:double_plates/tin"
+  },
+  "result": {
+    "item": "magistuarmory:tin_pavese"
+  },
+  "tier": 1,
+  "rules": [
+    "upset_last",
+    "bend_second_last",
+    "bend_third_last"
+  ]
+}

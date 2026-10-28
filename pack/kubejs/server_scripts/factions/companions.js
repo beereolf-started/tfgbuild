@@ -84,6 +84,25 @@ function cpOwner(server, s) {
 
 function cpMark(e, on) {
     try { if (on) e.addTag("tfg_companion"); else e.removeTag("tfg_companion") } catch (err) { }
+    if (on) cpKeep(e)
+}
+
+/**
+ * СПУТНИК НЕ ДОЛЖЕН ИСЧЕЗАТЬ НИКОГДА.
+ *
+ * Жители - это хаски, то есть для игры обычные чудовища. Игра сама убирает чудовищ, когда игрок
+ * отошёл: случайно за 32 блоками и всегда за 128. Поэтому спутник "появлялся, говорил и пропадал" -
+ * его стирала сама игра, а не наш код.
+ *
+ * Лечится признаком PersistenceRequired: он хранится в самой сущности и переживает выгрузку куска
+ * мира. Ставим его при найме и подтверждаем на каждом ходу - на случай, если житель был создан
+ * заново из записи поселения и признак не достался.
+ */
+function cpKeep(e) {
+    try { e.setPersistenceRequired(); return } catch (err) { }
+    // запасной путь, если имя способа в этой сборке другое
+    try { e.persistentData.putBoolean("tfg_keep", true) } catch (err) { }
+    try { e.setNoAi(false) } catch (err) { }
 }
 
 // ─── Позвать, отпустить, поселить на базе ────────────────────────────────────
@@ -223,6 +242,7 @@ function cpFollowTick(server) {
     var now = Number(server.tickCount)
     cpAll(level).forEach(c => {
         var e = c.e, s = c.s
+        cpKeep(e)                                   // подтверждаем на каждом ходу: игра не должна его стереть
         if (s.comp.mode === "база") return cpBaseStep(level, c, now)
         var p = cpOwner(server, s)
         if (!p || s.comp.mode === "ждёт") return

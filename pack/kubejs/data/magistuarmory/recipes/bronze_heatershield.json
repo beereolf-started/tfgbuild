@@ -1,0 +1,32 @@
+{
+  "type": "forge:conditional",
+  "recipes": [
+    {
+      "conditions": [
+        {
+          "type": "forge:false"
+        }
+      ],
+      "recipe": {
+        "type": "minecraft:crafting_shaped",
+        "pattern": [
+          " m ",
+          "msm",
+          " m "
+        ],
+        "key": {
+          "m": {
+            "tag": "forge:ingots/bronze"
+          },
+          "s": {
+            "item": "magistuarmory:wood_heatershield"
+          }
+        },
+        "result": {
+          "item": "magistuarmory:bronze_heatershield",
+          "count": 1
+        }
+      }
+    }
+  ]
+}
