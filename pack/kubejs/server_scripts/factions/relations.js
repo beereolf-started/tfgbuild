@@ -409,15 +409,40 @@ ServerEvents.tick(event => {
 
 // ─── Поступки игрока к жителям ───────────────────────────────────────────────
 
+/**
+ * МЕТКИ СУЩЕСТВА - ДВУМЯ ПУТЯМИ (28.10.2026).
+ *
+ * getTags() в этой сборке местами отдаёт пустоту. Здесь это стоило дорого: rlSettlerOf не
+ * опознавал жителя, из-за чего tkWho возвращал ничего - и РАЗГОВОР НЕ ЗНАЛ, КТО ПЕРЕД НИМ.
+ * Кнопки в разговоре молчали, наём спутника тихо ничего не делал, реплик не было.
+ *
+ * Поэтому: сперва обычный путь, а если он пуст - читаем Tags прямо из данных существа.
+ */
+function rlTags(e) {
+    var out = []
+    try {
+        var it = e.getTags().iterator()
+        while (it.hasNext()) out.push(String(it.next()))
+    } catch (err) { }
+    if (out.length) return out
+    try {
+        var list = e.nbt ? e.nbt.getList("Tags", 8) : null
+        if (list) for (var i = 0; i < list.size(); i++) out.push(String(list.getString(i)))
+    } catch (err) { }
+    return out
+}
+
 function rlSettlerOf(e) {
-    if (!e || !e.getTags || !e.getTags().contains("tfg_settler")) return null
-    var vid = null, sid = null
-    var it = e.getTags().iterator()
-    while (it.hasNext()) {
-        var t = String(it.next())
+    if (!e) return null
+    var tags = rlTags(e)
+    var vid = null, sid = null, isSettler = false
+    for (var i = 0; i < tags.length; i++) {
+        var t = tags[i]
+        if (t === "tfg_settler") isSettler = true
         if (t.indexOf("tfg_v_") === 0) vid = t.substring(6)
         if (t.indexOf("tfg_sid_") === 0) sid = t.substring(8)
     }
+    if (!isSettler) return null
     var v = vid && global.TFG_SETTLERS.list()[vid]
     return v ? { v: v, sid: sid } : null
 }

@@ -23,12 +23,13 @@
 
 const CP_MAX = 2
 const CP_HIRE_PRICE = 100
-// Замысел (задан пользователем 28.10.2026):
-//   держится не дальше 32 блоков; отстал больше - догоняет; больше 64 - догоняет спринтом;
-//   перенос - только дальше 60 И когда дороги к игроку вообще нет, и никогда на глазах.
-const CP_HOLD = 32                     // дальше этого уже догоняет
-const CP_RUN_FAR = 64                  // дальше этого догоняет спринтом
-const CP_PORT_FAR = 60                 // ближе этого не переносим вообще, сколько бы ни ждал
+// Замысел (задан пользователем, уточнён 29.10.2026):
+//   держится в 32 блоках от игрока; дальше 32 - идёт к нему; дальше 64 - бежит;
+//   перенос к игроку за спину - только если дальше 64, застрял И игрок не видел его 20+ секунд.
+const CP_HOLD = 32                     // дальше этого идёт к игроку
+const CP_RUN_FAR = 64                  // дальше этого бежит; только дальше этого возможен перенос
+const CP_KEEP = 6                      // ближе этого стоит, дальше - подтягивается шагом
+const CP_STUCK_T = 100                 // столько тиков не приближался хотя бы на 2 блока - застрял (5 секунд)
 const CP_NOPATH = 60                   // столько тиков без дороги, прежде чем счесть, что её нет
 const CP_UNSEEN = 400                  // сколько тиков игрок не должен на него смотреть (20 секунд)
 const CP_SEEN_DOT = 0.45               // насколько прямо игрок смотрит, чтобы счесть «видит»
@@ -48,41 +49,254 @@ function cpPick(a) { return a[Math.floor(Math.random() * a.length)] }
 
 // ─── Записи ──────────────────────────────────────────────────────────────────
 
+/** Номер игрока к одному виду: без чёрточек, в нижнем регистре - форматы записи различались. */
+function cpUuid(x) { return String(x).replace(/-/g, "").toLowerCase() }
+
 function cpMine(player) {
-    var out = [], u = String(player.uuid), vs = global.TFG_SETTLERS.list()
-    for (var vid in vs) vs[vid].settlers.forEach(s => { if (s.comp && s.comp.owner === u && !s.dead) out.push({ v: vs[vid], s: s }) })
+    var out = [], u = cpUuid(player.uuid), vs = global.TFG_SETTLERS.list()
+    for (var vid in vs) vs[vid].settlers.forEach(s => {
+        if (s.comp && !s.dead && cpUuid(s.comp.owner) === u) out.push({ v: vs[vid], s: s })
+    })
     return out
+}
+
+/** Все записи со спутниками, чей бы ни был - для разбора, почему команда показывает ноль. */
+function cpAllRecords() {
+    var out = [], vs = global.TFG_SETTLERS.list()
+    for (var vid in vs) vs[vid].settlers.forEach(s => { if (s.comp) out.push({ v: vs[vid], s: s }) })
+    return out
+}
+
+/**
+ * ВСЕ СУЩЕСТВА РЯДОМ С ИГРОКАМИ.
+ *
+ * Прежде и погоня, и сторож потерявшихся брали общий список существ мира (level.getEntities()).
+ * В этой сборке он ничего не отдаёт - и из этого вышло всё разом: погоня не работала, спутник
+ * отставал, сторож его не находил и каждые 60 секунд СОЗДАВАЛ нового рядом с игроком. В журнале
+ * это и видно: «догнал (появился рядом)» ровно каждые 70 секунд, у обоих сразу.
+ *
+ * Теперь обходим коробку вокруг каждого игрока - тем же способом, каким считает тварей
+ * iceandfire/iaf_cap.js, он в этой сборке работает. Спутник всегда возле игрока, так что
+ * ничего не теряется, а расход не зависит от размера мира.
+ */
+const CP_SCAN_R = 160
+const CP_AABB = Java.loadClass("net.minecraft.world.phys.AABB")
+
+function cpNearbyEntities(level) {
+    var out = [], seen = {}
+    var players = []
+    try { players = level.getServer().getPlayerList().getPlayers() } catch (err) { }
+    // Длину и способ доступа считаем ОДИН раз. Прежде здесь стояло
+    //   for (var i = 0; i < players.size ? players.size() : players.length; i++)
+    // и из-за старшинства операций сравнение съедало тернарный оператор: условие всегда было
+    // числом, цикл не останавливался и выходил за границы списка (IndexOutOfBounds).
+    var isJava = false
+    try { isJava = typeof players.size === "function" } catch (err) { isJava = false }
+    var n = 0
+    try { n = isJava ? players.size() : players.length } catch (err) { n = 0 }
+    if (!n) {
+        try {
+            players = SERVER.getPlayerList().getPlayers()
+            isJava = typeof players.size === "function"
+            n = isJava ? players.size() : players.length
+        } catch (err) { players = []; isJava = false; n = 0 }
+    }
+    for (var i = 0; i < n; i++) {
+        var p = isJava ? players.get(i) : players[i]
+        if (!p) continue
+        try {
+            if (String(p.level.getDimension()) !== String(level.getDimension())) continue
+        } catch (err) { }
+        var box
+        try {
+            box = new CP_AABB(p.getX() - CP_SCAN_R, p.getY() - 64, p.getZ() - CP_SCAN_R,
+                              p.getX() + CP_SCAN_R, p.getY() + 64, p.getZ() + CP_SCAN_R)
+        } catch (err) { continue }
+        var list = null
+        try { list = level.getEntitiesWithin(box) } catch (err) { list = null }
+        if (!list) continue
+        for (var j = 0; j < list.size(); j++) {
+            var e = list.get(j)
+            if (!e) continue
+            var u = String(e.uuid)
+            if (seen[u]) continue
+            seen[u] = 1
+            out.push(e)
+        }
+    }
+    // Счёт в журнал раз в минуту: без него не отличить «обход не работает» от «спутник далеко».
+    try {
+        var nowT = Number(SERVER.tickCount)
+        if (!cpNearbyEntities.said || nowT - cpNearbyEntities.said > 1200) {
+            cpNearbyEntities.said = nowT
+            var comp = 0, sett = 0
+            for (var q = 0; q < out.length; q++) {
+                try {
+                    if (cpHasTag(out[q], "tfg_companion")) comp++
+                    if (cpTagValue(out[q], "tfg_v_") !== null) sett++
+                } catch (err) { }
+            }
+            cpLog("обход: игроков " + n + ", существ рядом " + out.length + ", жителей " + sett + ", спутников " + comp)
+        }
+    } catch (err) { }
+
+    // запас: если игроков нет или коробка не сработала - прежний общий список
+    if (!out.length) {
+        try {
+            var all = level.getEntities()
+            for (var k = 0; k < all.size(); k++) out.push(all.get(k))
+        } catch (err) { }
+    }
+    return out
+}
+
+/**
+ * МЕТКИ СУЩЕСТВА - НАДЁЖНО.
+ *
+ * Обход вокруг игрока видит шестьсот существ, а спутников среди них ноль: значит метки либо
+ * не ставятся, либо не читаются через getTags(). Это уже третий случай подряд, когда способ
+ * игры молча отдаёт пустоту (так было со взглядом игрока и с признаком «не исчезать»).
+ *
+ * Поэтому читаем метки двумя путями: сперва getTags(), а если он пуст - из данных самого
+ * существа (Tags в NBT). Возвращаем обычный массив строк.
+ */
+function cpTags(e) {
+    var out = []
+    try {
+        var s = e.getTags()
+        if (s) {
+            var it = s.iterator()
+            while (it.hasNext()) out.push(String(it.next()))
+        }
+    } catch (err) { }
+    if (out.length) return out
+    try {
+        var nbt = e.nbt
+        var list = nbt ? nbt.getList("Tags", 8) : null
+        if (list) for (var i = 0; i < list.size(); i++) out.push(String(list.getString(i)))
+    } catch (err) { }
+    return out
+}
+
+function cpHasTag(e, tag) {
+    var tags = cpTags(e)
+    for (var i = 0; i < tags.length; i++) if (tags[i] === tag) return true
+    return false
+}
+
+/** Значение метки с приставкой: tfg_v_7 -> "7". */
+function cpTagValue(e, prefix) {
+    var tags = cpTags(e)
+    for (var i = 0; i < tags.length; i++) if (tags[i].indexOf(prefix) === 0) return tags[i].substring(prefix.length)
+    return null
+}
+const CP_UUIDC = Java.loadClass("java.util.UUID")
+const CP_ENT_CACHE = {}
+
+/**
+ * НАЙТИ СПУТНИКА - ПО НОМЕРУ СУЩЕСТВА, КАК У ГОСТЕЙ.
+ *
+ * Поиск по меткам не работал: getTags() в этой сборке местами отдаёт пустоту, и спутник считался
+ * потерянным, хотя стоял рядом. Гости (guests.js, gsEntity) ищут по номеру существа через
+ * level.getEntity - это работает у них месяцами. Делаем так же.
+ *
+ * Номер берём из записи (comp.euuid). У старых записей его нет - тогда разово ищем по меткам и
+ * запоминаем, чтобы дальше работало по номеру.
+ */
+function cpByUuid(level, uuid) {
+    if (!uuid) return null
+    var e = CP_ENT_CACHE[uuid]
+    try { if (e && !e.isRemoved()) return e.isAlive() ? e : null } catch (err) { }
+    try { e = level.getEntity(CP_UUIDC.fromString(uuid)) } catch (err) { e = null }
+    if (e) CP_ENT_CACHE[uuid] = e
+    try { return e && e.isAlive() ? e : null } catch (err) { return null }
 }
 
 function cpEntity(level, v, s) {
-    try {
-        var list = level.getEntities()
-        for (var i = 0; i < list.size(); i++) {
-            var e = list.get(i)
-            if (!e || !e.getTags || !e.isAlive()) continue
-            var t = e.getTags()
-            if (t.contains("tfg_v_" + v.id) && t.contains("tfg_sid_" + s.id)) return e
-        }
-    } catch (e) { }
+    if (s.comp && s.comp.euuid) {
+        var byId = cpByUuid(level, s.comp.euuid)
+        if (byId) return byId
+    }
+    var list = cpNearbyEntities(level)
+    for (var i = 0; i < list.length; i++) {
+        var e = list[i]
+        try {
+            if (!e.isAlive()) continue
+            if (cpHasTag(e, "tfg_v_" + v.id) && cpHasTag(e, "tfg_sid_" + s.id)) {
+                // нашли по меткам - запоминаем номер, дальше будет по нему
+                try { if (s.comp) s.comp.euuid = String(e.uuid) } catch (err2) { }
+                return e
+            }
+        } catch (err) { }
+    }
     return null
 }
 
+/** Существо жителя где угодно в прогруженном мире (общий список существ), не только у игрока. */
+function cpAnywhere(level, v, s) {
+    try {
+        var all = level.getEntities()
+        for (var i = 0; i < all.size(); i++) {
+            var e = all.get(i)
+            if (!e || !e.isAlive()) continue
+            if (cpHasTag(e, "tfg_v_" + v.id) && cpHasTag(e, "tfg_sid_" + s.id)) return e
+        }
+    } catch (err) { }
+    return null
+}
+
+/** Точка в dist блоках за спиной игрока: { x, z }. */
+function cpBehind(p, dist) {
+    var look = null
+    try { look = cpLook(p) } catch (err) { }
+    var bx = 0, bz = 0
+    if (look) { var l = Math.sqrt(look.x * look.x + look.z * look.z); if (l > 0.01) { bx = -look.x / l; bz = -look.z / l } }
+    if (!bx && !bz) { var a = Math.random() * 6.283185307179586; bx = Math.cos(a); bz = Math.sin(a) }
+    return { x: Math.floor(p.getX() + bx * dist), z: Math.floor(p.getZ() + bz * dist) }
+}
+
 /** Все спутники и жители базы в мире: { e, v, s }. */
+/**
+ * ВСЕ СПУТНИКИ - ОТ ЗАПИСЕЙ, А НЕ ОБХОДОМ МИРА.
+ *
+ * Прежде мы обходили сотни существ вокруг игрока и искали среди них своих по меткам. Теперь идём
+ * от записей поселений: у кого есть хозяин - того и ищем по номеру существа. Расход не зависит от
+ * числа существ рядом, и метки больше ни при чём.
+ */
 function cpAll(level) {
     var out = [], vs = global.TFG_SETTLERS.list()
-    try {
-        var list = level.getEntities()
-        for (var i = 0; i < list.size(); i++) {
-            var e = list.get(i)
-            if (!e || !e.getTags || !e.isAlive() || !e.getTags().contains("tfg_companion")) continue
-            var vid = seTagValue(e, "tfg_v_"), sid = seTagValue(e, "tfg_sid_")
-            var v = vs[vid], s = v ? v.settlers.filter(x => x.id === sid)[0] : null
-            if (v && s && s.comp) out.push({ e: e, v: v, s: s })
+    for (var vid in vs) {
+        var v = vs[vid]
+        for (var i = 0; i < v.settlers.length; i++) {
+            var s = v.settlers[i]
+            if (!s.comp || s.dead) continue
+            var e = cpEntity(level, v, s)
+            if (e) out.push({ e: e, v: v, s: s })
         }
-    } catch (e) { }
+    }
     return out
 }
 
+/**
+ * ХОД ОТРЕЗКАМИ - КАК У ГОСТЕЙ (guests.js, gsWalk, GS_LEG = 32).
+ *
+ * Навигация хаска длинных путей не строит: приказ идти к игроку за сто блоков просто не
+ * исполняется, спутник стоит. Поэтому ведём его отрезками по 32 блока в сторону цели, беря
+ * высоту по карте поверхности. У гостей так работает месяцами.
+ */
+const CP_LEG = 32
+const CP_HEIGHT = Java.loadClass("net.minecraft.world.level.levelgen.Heightmap$Types").MOTION_BLOCKING_NO_LEAVES
+
+function cpWalk(e, x, y, z, speed) {
+    var dx = x - e.getX(), dz = z - e.getZ()
+    var d = Math.sqrt(dx * dx + dz * dz)
+    if (d > CP_LEG + 4) {
+        x = e.getX() + dx / d * CP_LEG
+        z = e.getZ() + dz / d * CP_LEG
+        try { y = Number(e.level.getHeight(CP_HEIGHT, Math.floor(x), Math.floor(z))) } catch (err) { }
+    }
+    try { e.getNavigation().moveTo(x, y, z, speed) } catch (err) { }
+}
 function cpOwner(server, s) {
     try { return server.getPlayerList().getPlayer(CP_UUID.fromString(s.comp.owner)) } catch (e) { return null }
 }
@@ -165,7 +379,10 @@ function cpRecruit(ctx) {
 
 function cpStart(ctx, w, mode) {
     w.s.away = mode === "база" ? "база" : "спутник"
-    w.s.comp = { owner: String(ctx.player.uuid), mode: mode, since: Math.floor(Number(ctx.player.level.getTime()) / CP_DAY), ate: 0, eatDay: -1, hungry: 0 }
+    // Номер существа запоминаем сразу: по нему спутник находится надёжно, без метк.
+    // Так устроены ГОСТИ (guests.js, gsEntity) - у них это работает, у нас на метках не работало.
+    w.s.comp = { owner: String(ctx.player.uuid), euuid: String(ctx.trader.uuid), mode: mode,
+                 since: Math.floor(Number(ctx.player.level.getTime()) / CP_DAY), ate: 0, eatDay: -1, hungry: 0 }
     cpMark(ctx.trader, true)
     try { ctx.trader.getNavigation().stop() } catch (e) { }
     try { global.TFG_SETTLERS.save() } catch (e) { }
@@ -237,7 +454,11 @@ function cpLook(p) {
     if (!isFinite(pitch)) { try { pitch = Number(p.getXRot()) } catch (err) { } }
     if (!isFinite(pitch)) { try { pitch = Number(p.pitch) } catch (err) { } }
     if (!isFinite(yaw) || !isFinite(pitch)) return null
-    var ry = yaw * Math.PI / 180, rp = pitch * Math.PI / 180, cp = Math.cos(rp)
+    // Math.PI в этом Rhino НЕ СУЩЕСТВУЕТ - любое выражение с ним даёт NaN (проверено стендом,
+    // и о том же есть пометки в tfg/raids.js, tfg/slide.js, factions/stashes.js). Из-за этого
+    // направление взгляда выходило мусором, и проверка «игрок смотрит» врала всегда.
+    var CP_PI = 3.141592653589793
+    var ry = yaw * CP_PI / 180, rp = pitch * CP_PI / 180, cp = Math.cos(rp)
     return { x: -Math.sin(ry) * cp, y: -Math.sin(rp), z: Math.cos(ry) * cp }
 }
 
@@ -330,6 +551,19 @@ function cpPlaceNear(level, p, e) {
     // навигацию не сбрасываем: пусть сразу идёт следом, а не стоит на месте
 }
 
+/**
+ * Что делать спутнику: d - до игрока в блоках, stuckFor - сколько тиков не приближается,
+ * unseenFor - сколько тиков игрок его не видел. Ответ: "перенос" | "бег" | "идёт" | "шаг" | "стоит".
+ */
+function cpDecide(d, stuckFor, unseenFor) {
+    if (d > CP_RUN_FAR && stuckFor > CP_STUCK_T && unseenFor > CP_UNSEEN) return "перенос"
+    if (d > CP_RUN_FAR) return "бег"
+    if (d > CP_HOLD) return "идёт"
+    if (d > CP_KEEP) return "шаг"
+    return "стоит"
+}
+const CP_SPEED = { "бег": 2.0, "идёт": 1.4, "шаг": 1.0 }
+
 function cpFollowTick(server) {
     var level = server.overworld()
     var now = Number(server.tickCount)
@@ -357,33 +591,33 @@ function cpFollowTick(server) {
                 // места не нашлось (конь, одноместный аппарат) - бежит следом, а не переносится
             } else if (e.isPassenger()) e.stopRiding()
         } catch (err) { }
-        // ПЕРЕНОС - крайняя мера. Только если отстал дальше CP_PORT_FAR И дороги к игроку нет
-        // (поиск пути ничего не нашёл CP_NOPATH тиков подряд). Вода и лава больше поводом не
-        // считаются: спутник в них не гибнет (cpGuard), а переносить его из лужи у игрока на
-        // глазах - ровно то, что выглядело поломкой.
-        if (d2 > CP_PORT_FAR * CP_PORT_FAR && cpNoPath(e, p, now) && cpMayPort(p, e, now))
-            return cpPlaceNear(level, p, e)
-        // застрял: дальше шести блоков и за пять секунд не сдвинулся
-        // Прежде отсюда уходил перенос «застрял и не сдвинулся» - он и срабатывал в пяти шагах
-        // от игрока. Теперь застревание только помечается: переносит лишь отсутствие дороги.
+        var d = Math.sqrt(d2)
+        // видит ли его игрок - следим на каждом ходу, а не только когда пора переносить
+        if (CP_SEEN_AT[u] === undefined || cpSeen(p, e)) CP_SEEN_AT[u] = now
+        // застрял: дальше 32 блоков и за 5 секунд не стал ближе хотя бы на 2 блока
         var st = CP_STUCK[u]
-        if (d2 > 36) {
-            if (!st || Math.abs(st.x - e.getX()) + Math.abs(st.z - e.getZ()) > 1) CP_STUCK[u] = { x: e.getX(), z: e.getZ(), at: now }
-        } else delete CP_STUCK[u]
+        if (d > CP_HOLD) {
+            if (!st || d < st.d - 2) { st = { d: d, at: now }; CP_STUCK[u] = st }
+        } else { delete CP_STUCK[u]; st = null }
+        var act = cpDecide(d, st ? now - st.at : 0, now - CP_SEEN_AT[u])
+        // ПЕРЕНОС - крайняя мера: дальше 64, застрял и игрок не видел его 20 секунд. За спину игрока.
+        if (act === "перенос") {
+            cpPlaceNear(level, p, e)
+            delete CP_STUCK[u]
+            cpLog(s.name + ": застрял в " + Math.round(d) + " бл. - перенесён за спину " + p.username)
+            return
+        }
         // драка - не мешаем; иначе - следом
         try { if (e.getTarget && e.getTarget()) return } catch (err) { }
         try {
-            if (d2 > CP_NEAR * CP_NEAR) {
-                // 1.0 - шаг, дальше - спринт: иначе за бегущим игроком не поспеть, и его
-                // приходилось бы переносить, что и выглядело как поломка
-                // до 32 - шаг, за 32 прибавляет, за 64 - спринт
-                var sp = d2 > CP_RUN_FAR * CP_RUN_FAR ? 2.4 : d2 > CP_HOLD * CP_HOLD ? 1.8 : d2 > 144 ? 1.4 : 1.0
-                e.getNavigation().moveTo(p.getX(), p.getY(), p.getZ(), sp)
-                try { e.setSprinting(sp >= 1.8) } catch (err) { }
+            // в 32 блоках - подтягивается шагом; дальше 32 - идёт быстрее; дальше 64 - бежит
+            if (act !== "стоит") {
+                cpWalk(e, p.getX(), p.getY(), p.getZ(), CP_SPEED[act])
+                try { e.setSprinting(act === "бег") } catch (err) { }
             } else {
                 try { e.setSprinting(false) } catch (err) { }
+                e.getNavigation().stop()
             }
-            if (d2 <= CP_NEAR * CP_NEAR) e.getNavigation().stop()
         } catch (err) { }
         // разговор в пути
         if (d2 < 100 && (!CP_BARK_AT[u] || now - CP_BARK_AT[u] > 4000) && Math.random() < 0.05) {
@@ -884,11 +1118,26 @@ function cpLostTick(server) {
         cpMine(p).forEach(c => {
             if (c.s.comp.mode !== "идёт") return
             var key = c.v.id + "|" + c.s.id
+            try { if (String(p.level.getDimension()) !== "minecraft:overworld") return } catch (e0) { return }
             if (cpEntity(level, c.v, c.s)) { delete CP_LOST[key]; return }
+            // Рядом с игроком нет - но он может быть жив дальше, в прогруженной земле (у поселения).
+            // Прежде тут сразу создавался новый, а старый делал его двойником, и новый тут же убирался:
+            // «догнал (появился рядом)» каждые 70 секунд. Теперь живого ищем по всему миру.
+            var far = cpAnywhere(level, c.v, c.s)
+            if (far) {
+                delete CP_LOST[key]
+                try { c.s.comp.euuid = String(far.uuid) } catch (e1) { }
+                if (now - (CP_SEEN_AT[String(far.uuid)] || 0) > CP_UNSEEN) {
+                    cpPlaceNear(level, p, far)
+                    cpLog(c.s.name + " был далеко от " + p.username + " - перенесён за спину")
+                }
+                return
+            }
             if (!CP_LOST[key]) { CP_LOST[key] = now; return }
             if (now - CP_LOST[key] < 1200) return
             delete CP_LOST[key]
-            c.s.enterAt = { x: Math.floor(p.getX()) + 2, z: Math.floor(p.getZ()) + 2 }
+            c.s.enterAt = cpBehind(p, 3)
+            delete c.s.comp.euuid                     // номер нового существа запишет его появление
             try { seSpawnOne(c.v, c.s, level); cpLog(c.s.name + " догнал " + p.username + " (появился рядом)") } catch (e) { }
         })
     })
@@ -920,7 +1169,11 @@ EntityEvents.spawned(event => {
         var vid = seTagValue(e, "tfg_v_"), sid = seTagValue(e, "tfg_sid_")
         var v = global.TFG_SETTLERS.list()[vid]
         var s = v ? v.settlers.filter(x => x.id === sid)[0] : null
-        if (s && s.comp) cpMark(e, true)
+        if (s && s.comp) {
+            try { if (e.isRemoved()) return } catch (err1) { }       // двойник, его только что убрали
+            cpMark(e, true)
+            if (s.comp.euuid !== String(e.uuid)) { s.comp.euuid = String(e.uuid); try { global.TFG_SETTLERS.save() } catch (err2) { } }
+        }
     } catch (err) { }
 })
 
@@ -977,7 +1230,9 @@ EntityEvents.death(event => {
     if (typeof DLG_NPC_OPTIONS === "undefined") return
     var opts = [
         { id: "cp_recruit", label: () => "Пойдёшь со мной?", hint: () => "Друг пойдёт даром, приятель - за " + CP_HIRE_PRICE + " медяков. Не больше двух спутников.",
-            show: ctx => cpIsSettler(ctx) && !cpOf(ctx) && !(tkWho(ctx) || { s: {} }).s.comp, run: ctx => cpRecruit(ctx) },
+            // без записи жителя кнопка не показывается: прежде она была, но молча ничего не делала
+            show: ctx => { if (!cpIsSettler(ctx) || cpOf(ctx)) return false; var w = tkWho(ctx); return !!w && !w.s.comp },
+            run: ctx => cpRecruit(ctx) },
         { id: "cp_wait", label: () => "Подожди здесь", hint: () => "Останется на месте, пока не позовёшь.",
             show: ctx => { var w = cpOf(ctx); return !!w && w.s.comp.mode === "идёт" },
             run: ctx => { var w = cpOf(ctx); w.s.comp.mode = "ждёт"; try { ctx.trader.getNavigation().stop() } catch (e) { } global.TFG_SETTLERS.save(); dlgSay(ctx, cpPick(CP_WAIT)) } },
@@ -1004,13 +1259,104 @@ ServerEvents.commandRegistry(event => {
     event.register(event.commands.literal("tfgcomp").executes(ctx => {
         var p = ctx.source.getPlayerOrException()
         var mine = cpMine(p)
-        if (!mine.length) { p.tell(Text.of("§7Спутников нет. Позови жителя в разговоре: «Пойдёшь со мной?»")); return 1 }
+        if (!mine.length) {
+            p.tell(Text.of("§7Спутников нет. Позови жителя в разговоре: «Пойдёшь со мной?»"))
+            // Разбор: бывает, что запись есть, а хозяин в ней записан иначе
+            var all = cpAllRecords()
+            p.tell(Text.of("§8твой номер: " + cpUuid(p.uuid)))
+            p.tell(Text.of("§8записей со спутниками всего: " + all.length))
+            all.slice(0, 4).forEach(r => p.tell(Text.of("§8  " + r.s.name + " - хозяин " + cpUuid(r.s.comp.owner) + ", состояние " + r.s.comp.mode + (r.s.dead ? ", помечен погибшим" : ""))))
+            return 1
+        }
         mine.forEach(c => p.tell(Text.of("§6• §7" + c.s.name + " (" + (c.s.role || "житель") + "): " + c.s.comp.mode +
             (c.s.comp.base ? ", база " + c.s.comp.base.x + " " + c.s.comp.base.z + (c.s.comp.hungry ? ", голодает дней: " + c.s.comp.hungry : "") : ""))))
         return 1
     }))
 })
 
+/**
+ * САМОПРОВЕРКА: /tfgcheck
+ *
+ * Весь день мы теряли часы на том, что способы игры молча отказывали: метки читались пустыми,
+ * направление взгляда падало, признак «не исчезать» не ставился, список существ был пуст.
+ * Ни один из этих отказов не был виден - ни ошибки, ни следа в журнале.
+ *
+ * Эта команда берёт ближайшего жителя и проверяет КАЖДУЮ способность по отдельности, печатая
+ * годен/не годен. Так неизвестность превращается в список из десяти строк, и уверенность
+ * становится проверяемой, а не словесной.
+ */
+ServerEvents.commandRegistry(event => {
+    event.register(event.commands.literal("tfgcheck").executes(ctx => {
+        var p = ctx.source.getPlayerOrException()
+        var level = p.level
+        var ok = 0, bad = 0
+        function say(name, good, extra) {
+            if (good) ok++; else bad++
+            p.tell(Text.of((good ? "§aгоден  §7" : "§cНЕ ГОДЕН §7") + name + (extra ? " §8" + extra : "")))
+        }
+
+        // ближайший житель - на нём и проверяем
+        var e = null, best = 1e9
+        try {
+            var box = new CP_AABB(p.getX() - 48, p.getY() - 32, p.getZ() - 48, p.getX() + 48, p.getY() + 32, p.getZ() + 48)
+            var list = level.getEntitiesWithin(box)
+            for (var i = 0; i < list.size(); i++) {
+                var c = list.get(i)
+                if (!c || !c.isAlive()) continue
+                if (cpTagValue(c, "tfg_sid_") === null) continue
+                var dx = c.getX() - p.getX(), dz = c.getZ() - p.getZ()
+                var d = dx * dx + dz * dz
+                if (d < best) { best = d; e = c }
+            }
+        } catch (err) { }
+
+        say("обход существ вокруг игрока", e !== null, e ? "житель найден" : "жителей рядом нет - встань в поселении")
+        if (!e) { p.tell(Text.of("§7итог: проверка неполная")); return 1 }
+
+        say("чтение метк", cpTagValue(e, "tfg_sid_") !== null, "номер жителя " + cpTagValue(e, "tfg_sid_"))
+        var byId = null
+        try { byId = cpByUuid(level, String(e.uuid)) } catch (err) { }
+        say("поиск по номеру существа", byId !== null)
+        var nav = null
+        try { nav = e.getNavigation() } catch (err) { }
+        say("ходьба (навигация)", nav !== null && nav !== undefined)
+        var path = null
+        try { path = nav.createPath(p.blockPosition(), 1) } catch (err) { }
+        say("поиск дороги до игрока", path !== null && path !== undefined, path ? "дорога есть: " + path.canReach() : "способ недоступен - считаем, что дороги нет")
+        var keep = false
+        try { e.setPersistenceRequired(); keep = true } catch (err) { }
+        say("признак «не исчезать»", keep, keep ? "" : "ставится командой - запасной путь")
+        var look = cpLook(p)
+        say("направление взгляда игрока", look !== null)
+        var hp = false
+        try { hp = isFinite(Number(e.getHealth())) && isFinite(Number(e.getMaxHealth())); } catch (err) { }
+        say("здоровье и восстановление", hp)
+        var air = false
+        try { e.setAirSupply(300); air = true } catch (err) { }
+        say("защита от утопления", air)
+        // САМОЕ ВАЖНОЕ: опознаёт ли разговор жителя. От этого зависят и реплики, и наём.
+        var who = null
+        try { who = rlSettlerOf(e) } catch (err) { }
+        say("разговор опознаёт жителя", who !== null && who.sid !== null,
+            who ? "поселение " + who.v.id + ", номер " + who.sid : "НЕ опознан - реплик и найма не будет")
+        var full = null
+        try { full = tkWho({ trader: e, player: p }) } catch (err) { }
+        say("запись жителя для разговора", full !== null,
+            full ? "имя " + full.s.name + ", расположение " + (full.op ? full.op.value : "?") : "записи нет")
+        if (full) {
+            var tier = -1
+            try { tier = rlTier(full.op.value) } catch (err) { }
+            say("пойдёт ли в спутники", tier >= 3,
+                tier >= 4 ? "пойдёт даром" : tier === 3 ? "пойдёт за " + CP_HIRE_PRICE + " медяков" : "откажет: расположение низкое (ступень " + tier + ")")
+        }
+        var recs = cpAllRecords()
+        say("записи спутников читаются", true, "всего записей со спутниками: " + recs.length)
+
+        p.tell(Text.of((bad === 0 ? "§aитог: всё годно (" : "§cитог: неисправно " + bad + " из ") + (ok + bad) + ")"))
+        if (bad > 0) p.tell(Text.of("§7покажи мне эти строки - я починю именно их"))
+        return 1
+    }))
+})
 global.TFG_COMPANIONS = { mine: player => cpMine(player) }
 
 // ─── Цепочки разговоров со спутником ─────────────────────────────────────────

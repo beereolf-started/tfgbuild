@@ -66,7 +66,9 @@ function nhCall(obj, names, args) {
 function nhFace(e, player) {
     var dx = player.getX() - e.getX(), dz = player.getZ() - e.getZ()
     var yaw = Math.atan2(dz, dx) * 180 / 3.141592653589793 - 90
-    nhCall(e, ["setYRot", "m_146922_"], [yaw])
+    // KubeJS переименовал setYRot в setYaw (см. tfg/raids.js) - пробуем все три имени,
+    // иначе разворот к игроку падал и житель не поворачивался на разговор.
+    nhCall(e, ["setYaw", "setYRot", "m_146922_"], [yaw])
     nhCall(e, ["setYHeadRot", "m_5616_"], [yaw])
     nhCall(e, ["setYBodyRot", "m_5618_"], [yaw])
     e.getLookControl().setLookAt(player.getX(), player.getEyeY(), player.getZ())

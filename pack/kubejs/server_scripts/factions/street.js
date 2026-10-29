@@ -358,6 +358,9 @@ function srCompose(houses, have) {
 // ─── Улица целиком ───────────────────────────────────────────────────────────
 
 function srLoad() {
+    // После /reload сервер здесь становится известен только с первого хода этого скрипта, а другие
+    // скрипты спрашивают улицы раньше: чтение падало, и поселения считались стоящими без улиц.
+    if (!SR_SERVER) { try { SR_SERVER = Utils.server } catch (e) { } }
     var pd = SR_SERVER.persistentData
     try { return JSON.parse(global.TFG_STORE.read(pd, "tfg_streets") || "{}") } catch (e) { return {} }
 }

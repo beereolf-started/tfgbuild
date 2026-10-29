@@ -71,6 +71,20 @@ function seLoad() {
         }
     }
     if (!SE_DATA.villages) SE_DATA.villages = {}
+    // 28.10.2026 19:03 запись обнулилась (seGhost счёл все девять поселений снесёнными, см. ниже), а
+    // запасная осталась цела: она пишется только непустой. Пустая основная при непустой запасной -
+    // это поломка, а не мир без поселений: поднимаем запасную.
+    if (!SE_BROKEN && !Object.keys(SE_DATA.villages).length) {
+        try {
+            var bk = JSON.parse(global.TFG_STORE.read(SE_SERVER.persistentData, "tfg_settlers_backup") || "{}")
+            if (bk && bk.villages && Object.keys(bk.villages).length) {
+                SE_DATA = bk
+                SE_DATA.restoredAt = Date.now()
+                global.TFG_STORE.write(SE_SERVER.persistentData, "tfg_settlers", JSON.stringify(SE_DATA, seJsonSafe))
+                seLog("данные жителей были пусты - подняты из запасной копии: поселений " + Object.keys(SE_DATA.villages).length)
+            }
+        } catch (e4) { seErr("подъём из запасной копии", e4) }
+    }
     if (!SE_BROKEN && Object.keys(SE_DATA.villages).length) {
         try { global.TFG_STORE.write(SE_SERVER.persistentData, "tfg_settlers_backup", JSON.stringify(SE_DATA, seJsonSafe)) } catch (e3) { }
     }
@@ -97,7 +111,16 @@ function seStreet(v) {
     try { return global.TFG_STREET.list()[v.settlement] || null } catch (e) { return null }
 }
 
-function seGhost(v) { return !seStreet(v) }
+/**
+ * Призрак - поселение, чьей улицы нет в ПРОЧИТАННОМ списке улиц. Если список не читается или пуст
+ * (после /reload street.js ещё не знает сервер, и чтение падает), судить нельзя: 28.10.2026 в 19:03
+ * именно так все девять поселений были удалены разом как «улица снесена», хотя улицы стояли.
+ */
+function seStreetsKnown() {
+    try { var l = global.TFG_STREET.list(); return !!l && Object.keys(l).length > 0 } catch (e) { return false }
+}
+
+function seGhost(v) { return seStreetsKnown() && !seStreet(v) }
 
 /** Убрать поселение целиком: жителей из мира, запись из данных. */
 function seDrop(v, why) {
@@ -1218,10 +1241,21 @@ EntityEvents.spawned(event => {
         try {
             var tp = String(e.getType())
             if (/zombie|drowned/.test(tp) && e.getTags && !e.getTags().contains("tfg_npc") && e.getCustomName() &&
-                String(e.getCustomName().getString()).split(" · ").length >= 3) { event.cancel(); return }
+                String(e.getCustomName().getString()).split(" · ").length >= 3) { seRemove(e); return }
         } catch (err0) { }
-        if (!e || !e.getTags || !e.getTags().contains("tfg_settler")) return
-        if (seStale(e)) { seLog("лишний житель " + String(e.getName().getString()) + " не впущен в мир"); event.cancel(); return }
+        if (!e || !seHasTag(e, "tfg_settler")) return
+        if (seStale(e)) {
+            // ВОЗВРАЩЕНО 28.10 после проверки в игре. Здесь была event.cancel(). Она бросает
+            // EventExit, внешний перехватчик этого обработчика его съедал и писал ошибкой
+            // («settlers.js#44: появление: EventExit» в журнале). Отмена не срабатывала, а
+            // настройка жителя НИЖЕ уже не выполнялась: ни снятие злых целей хаска, ни голос,
+            // ни подпись, ни одежда. В мире оставался РЫЧАЩИЙ ХАСК, и наём был невозможен.
+            //
+            // Доказано опытом: исходная версия - рычат; эта правка - не рычат; откат - рычат снова.
+            seLog("лишний житель " + String(e.getName().getString()) + " убран")
+            seRemove(e)
+            return
+        }
         seTame(e)
         seVoiceSetup(e)
         if (seRoleOf(e) === "торговец") seTraderSetup(e)
@@ -1311,6 +1345,14 @@ const SE_TAG_ROLE = {}
 for (var seRK in SE_ROLE_TAG) SE_TAG_ROLE[SE_ROLE_TAG[seRK]] = seRK
 function seRoleTag(role) { return SE_ROLE_TAG[role] || "farmer" }
 
+/**
+ * ЗНАЧЕНИЕ МЕТКИ - ДВУМЯ ПУТЯМИ (единственная правка поверх рабочей версии 28.10).
+ *
+ * getTags() в этой сборке местами отдаёт пустоту, и тогда система слепнет: житель не опознаётся,
+ * разговор не находит запись, наём спутника молча ничего не делает. Добавка только запасная:
+ * если обычный путь ничего не дал - читаем метки прямо из данных существа. Ничего не отнимает.
+ * Проверено: с ней обход видит 76 жителей, без неё - 0.
+ */
 function seTagValue(e, prefix) {
     try {
         var it = e.getTags().iterator()
@@ -1319,7 +1361,24 @@ function seTagValue(e, prefix) {
             if (t.indexOf(prefix) === 0) return t.substring(prefix.length)
         }
     } catch (err) { }
+    try {
+        var list = e.nbt ? e.nbt.getList("Tags", 8) : null
+        if (list) for (var i = 0; i < list.size(); i++) {
+            var s = String(list.getString(i))
+            if (s.indexOf(prefix) === 0) return s.substring(prefix.length)
+        }
+    } catch (err) { }
     return null
+}
+
+/** Есть ли метка - двумя путями, как и seTagValue: обычный способ местами отдаёт пустоту. */
+function seHasTag(e, tag) {
+    try { if (e.getTags().contains(tag)) return true } catch (err) { }
+    try {
+        var list = e.nbt ? e.nbt.getList("Tags", 8) : null
+        if (list) for (var i = 0; i < list.size(); i++) if (String(list.getString(i)) === tag) return true
+    } catch (err) { }
+    return false
 }
 
 function seRoleOf(e) { return SE_TAG_ROLE[seTagValue(e, "tfg_role_")] || "крестьянин" }
@@ -2469,9 +2528,14 @@ function seRespawnMissing(level, v) {
 
 function seVillageTick(level, v, night) {
     if (seGhost(v)) {                                  // улицы нет - это призрак, ему тут не место
+        // не с первого взгляда: улицы нет при проверках подряд дольше двух минут
+        var gnow = Number(level.getTime())
+        if (!v.ghostSince) { v.ghostSince = gnow; seLog("поселение " + v.id + ": улицы " + v.settlement + " не видно - жду, прежде чем удалять"); return }
+        if (gnow - v.ghostSince < 2400) return
         seDrop(v, "улица " + v.settlement + " снесена")
         return
     }
+    if (v.ghostSince) delete v.ghostSince
     if (v.rebuildPending) seRebuildTick(level, v, false)
     // поселениям, построенным раньше, свои сундуки раздаём один раз, когда они прогружены целиком
     if (!v.chestsDone && seEvery(400, 0) && seLoadedAround(level, v)) {
@@ -4696,7 +4760,7 @@ function seSaidTick(level, ents) {
 EntityEvents.hurt(event => {
     try {
         var e = event.entity
-        if (!e || !e.getTags || !e.getTags().contains("tfg_settler")) return
+        if (!e || !seHasTag(e, "tfg_settler")) return
         var src = null
         try { src = event.source && event.source.player } catch (e2) { }
         if (!src) {
@@ -4722,7 +4786,7 @@ EntityEvents.hurt(event => {
 EntityEvents.death(event => {
     try {
         var e = event.entity
-        if (!e || !e.getTags || !e.getTags().contains("tfg_settler")) return
+        if (!e || !seHasTag(e, "tfg_settler")) return
         var data = seLoad()
         var vid = null, sid = null
         var it = e.getTags().iterator()

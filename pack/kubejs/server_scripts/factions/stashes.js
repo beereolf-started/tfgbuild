@@ -595,6 +595,29 @@ function shTick(level, v) {
     var changed = false
     if (!v.stashesPlanned) { shPlan(v); v.stashesPlanned = true; changed = true }
     if (!v.diaryFix4 && v.booksDone) { shDiaryRepair(level, v); v.diaryFix4 = true; changed = true }
+    // Клад числится заложенным, а его зоны больше нет: местность откатили (28.10.2026 поселения
+    // ошибочно удалялись вместе с кладами, а записи потом вернули из запасной копии). Закладываем
+    // заново на том же месте - запись в дневнике остаётся верной.
+    var zoneGone = r => {
+        if (!r || !r.placed || r.looted || r.gone || !r.zone) return false
+        // список зон не прочитан или пуст - судить нельзя (та же ловушка, что сгубила поселения)
+        try { return global.TFG_ZONES.list().length > 0 && !global.TFG_ZONES.get(r.zone) } catch (e) { return false }
+    }
+    if (zoneGone(v.treasury)) {
+        var tr = v.treasury
+        v.treasury = { x: tr.x, z: tr.z, placed: false, ref: tr.ref, rumor: tr.rumor, refFix: tr.refFix }
+        shLog("поселение " + v.id + ": казна у " + tr.x + " " + tr.z + " откатана вместе с местностью - заложу заново")
+        changed = true
+    }
+    for (var gk in (v.stashes || {})) {
+        var gr = v.stashes[gk]
+        if (!zoneGone(gr)) continue
+        gr.placed = false
+        delete gr.zone
+        delete gr.y
+        shLog("поселение " + v.id + ": тайник " + gk + " откатан вместе с местностью - заложу заново")
+        changed = true
+    }
     // Места кладов считались через Math.PI, а в Rhino сервера он не число - координаты выходили NaN (в данных
     // теперь null). Незаложенным кладам с такими координатами выбираем место заново.
     var bad = r => !r || typeof r.x !== "number" || typeof r.z !== "number" || !isFinite(r.x) || !isFinite(r.z)
