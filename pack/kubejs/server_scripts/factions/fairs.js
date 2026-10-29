@@ -738,6 +738,9 @@ function frAwayPurge(level, village) {
     ents.forEach(e => {
         var rec = village.settlers.filter(s => s.id === seSidOf(e))[0]
         if (!rec || !rec.away) return
+        // спутник и житель базы тоже «в отлучке», но их тело - при игроке: не трогать (29.10.2026 их тут и убирало)
+        if (rec.comp || rec.away === "спутник" || rec.away === "база") return
+        try { if (e.getTags().contains("tfg_companion")) return } catch (err0) { }
         try { e.discard() } catch (err) { }
         rec.goneBody = true
         changed = true

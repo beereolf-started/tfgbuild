@@ -40,7 +40,8 @@ const CP_BASE_R = 20
 const CP_DAY = 24000
 const CP_UUID = Java.loadClass("java.util.UUID")
 
-var CP_STUCK = {}                     // uuid сущности -> { x, z, at }
+var CP_STUCK = {}                     // uuid сущности -> { d, at }
+var CP_SAID = {}                      // uuid сущности -> когда последний раз писали о нём в журнал
 var CP_BARK_AT = {}                   // uuid сущности -> тик сервера
 var CP_LOST = {}                      // "vid|sid" -> тик, с которого спутника нет в мире
 
@@ -420,6 +421,14 @@ function cpSettleBase(ctx, w) {
 
 // ─── Ход спутников ───────────────────────────────────────────────────────────
 
+const CP_BASE_BARK_T = 2400            // житель базы заговаривает не чаще раза в две минуты
+const CP_BARK_GUARD = ["Тихо пока. Мне такая тишина не нравится.", "Обошёл кругом - чужих нет.", "Ночью смотреть в оба, днём - вдвое.",
+    "Если полезут - встречу.", "Стена бы тут не помешала.", "Следы у ручья. Звериные, но я проверю."]
+const CP_BARK_FIGHT = ["Держись за мной!", "Ещё один!", "Не стой на виду!", "Сюда, сволочи!"]
+const CP_BARK_PEASANT = ["Поспело - значит, жать. Ждать некогда.", "Земля тут хорошая, только руки нужны.",
+    "Семя назад в землю - и снова ждать.", "Куда класть-то? Поставь сундук поближе.", "Спина болит, а работы не меньше.", "Урожай в этом году будет."]
+const CP_BARK_NOBLE = ["Караваны - это деньги. Только надо уметь торговаться.", "Я продаю дороже, чем ты. Не обижайся.",
+    "Казну держи в одном месте - так проще считать.", "Хороший товар сам себе покупателя найдёт.", "Торговец без денег - не торговец."]
 const CP_BARK = ["Далеко ещё?", "Хорошая погода для дороги.", "Слышишь? Кажется, кто-то идёт.", "Ноги гудят, но я не жалуюсь.",
     "А ты знаешь, куда мы идём? Я - нет.", "Будь начеку. Тут всякое водится.", "Хорошо идти не одному.", "Привал бы скоро.",
     "Я тебя в обиду не дам.", "Смотри под ноги, тут камни."]
@@ -442,21 +451,15 @@ const CP_BARK = ["Далеко ещё?", "Хорошая погода для д�
  * чем перенести у него перед носом.
  */
 function cpLook(p) {
-    try {
-        var l = p.getLookAngle()
-        if (l && isFinite(Number(l.x))) return { x: Number(l.x), y: Number(l.y), z: Number(l.z) }
-    } catch (err) { }
-    var yaw = NaN, pitch = NaN
-    try { yaw = Number(p.getYaw()) } catch (err) { }
-    if (!isFinite(yaw)) { try { yaw = Number(p.getYRot()) } catch (err) { } }
-    if (!isFinite(yaw)) { try { yaw = Number(p.yaw) } catch (err) { } }
-    try { pitch = Number(p.getPitch()) } catch (err) { }
-    if (!isFinite(pitch)) { try { pitch = Number(p.getXRot()) } catch (err) { } }
-    if (!isFinite(pitch)) { try { pitch = Number(p.pitch) } catch (err) { } }
-    if (!isFinite(yaw) || !isFinite(pitch)) return null
-    // Math.PI в этом Rhino НЕ СУЩЕСТВУЕТ - любое выражение с ним даёт NaN (проверено стендом,
-    // и о том же есть пометки в tfg/raids.js, tfg/slide.js, factions/stashes.js). Из-за этого
-    // направление взгляда выходило мусором, и проверка «игрок смотрит» врала всегда.
+    // Только getYRot/getXRot - ими поворачивает игрока подкат (tfg/slide.js), они здесь точно есть.
+    // Пробы других имён (getLookAngle, getYaw, yaw...) на игроке в этой сборке роняли ход сервера
+    // ошибкой, которую не ловит try (29.10.2026: «Error in ServerEvents.tick: null» при выпуске спутника).
+    var yaw = NaN, pitch = 0
+    try { yaw = Number(p.getYRot()) } catch (err) { }
+    try { pitch = Number(p.getXRot()) } catch (err) { }
+    if (!isFinite(yaw)) return null
+    if (!isFinite(pitch)) pitch = 0
+    // Math.PI в этом Rhino НЕ СУЩЕСТВУЕТ - любое выражение с ним даёт NaN
     var CP_PI = 3.141592653589793
     var ry = yaw * CP_PI / 180, rp = pitch * CP_PI / 180, cp = Math.cos(rp)
     return { x: -Math.sin(ry) * cp, y: -Math.sin(rp), z: Math.cos(ry) * cp }
@@ -571,6 +574,15 @@ function cpFollowTick(server) {
         var e = c.e, s = c.s
         cpKeep(e)                                   // подтверждаем на каждом ходу: игра не должна его стереть
         cpGuard(e, now)                             // не тонет, не горит, не каменеет, восстанавливается
+        // без рыка: список подмены звуков хаска (RAID_HUSKS) обнуляется каждым /reload, а поселение
+        // спутников больше не обходит (seEntities их пропускает) - записываем сами
+        try { if (typeof gsHuskVoice === "function") gsHuskVoice(e) } catch (err) { }
+        // бессмертие (/tfgcomp бессмертие): метка на существе по отметке в записи
+        try {
+            if (s.comp.immortal) { if (!e.getTags().contains("tfg_immortal")) e.addTag("tfg_immortal") }
+            else if (e.getTags().contains("tfg_immortal")) e.removeTag("tfg_immortal")
+            if (s.comp.heal) { delete s.comp.heal; e.setHealth(e.getMaxHealth()) }
+        } catch (err) { }
         if (s.comp.mode === "база") return cpBaseStep(level, c, now)
         var p = cpOwner(server, s)
         if (!p || s.comp.mode === "ждёт") return
@@ -600,6 +612,12 @@ function cpFollowTick(server) {
             if (!st || d < st.d - 2) { st = { d: d, at: now }; CP_STUCK[u] = st }
         } else { delete CP_STUCK[u]; st = null }
         var act = cpDecide(d, st ? now - st.at : 0, now - CP_SEEN_AT[u])
+        if (!CP_SAID[u] || now - CP_SAID[u] > 1200) {
+            CP_SAID[u] = now
+            cpLog(s.name + ": до " + p.username + " " + Math.round(d) + " бл. (" + Math.round(e.getX()) + " " + Math.round(e.getY()) + " " +
+                Math.round(e.getZ()) + "), " + act + ", не приближается " + (st ? Math.round((now - st.at) / 20) : 0) + " с, не виден " +
+                Math.round((now - CP_SEEN_AT[u]) / 20) + " с")
+        }
         // ПЕРЕНОС - крайняя мера: дальше 64, застрял и игрок не видел его 20 секунд. За спину игрока.
         if (act === "перенос") {
             cpPlaceNear(level, p, e)
@@ -607,8 +625,16 @@ function cpFollowTick(server) {
             cpLog(s.name + ": застрял в " + Math.round(d) + " бл. - перенесён за спину " + p.username)
             return
         }
-        // драка - не мешаем; иначе - следом
-        try { if (e.getTarget && e.getTarget()) return } catch (err) { }
+        // бой: тот, кого ему назначили (ударил хозяина / его бьёт хозяин), иначе враг рядом с хозяином
+        var foe2 = CP_FOE[u]
+        if (!foe2) { try { var tg = e.getTarget(); if (tg && tg.isAlive()) foe2 = tg } catch (err) { } }
+        if (foe2 && d < CP_RUN_FAR) {
+            var fd = Math.pow(foe2.getX() - p.getX(), 2) + Math.pow(foe2.getZ() - p.getZ(), 2)
+            if (fd > CP_ESCORT_R * CP_ESCORT_R * 4) foe2 = null       // враг ушёл далеко от хозяина - не гонимся
+        }
+        if (!foe2 && d < CP_HOLD) foe2 = cpFoeNear(level, p.getX(), p.getY(), p.getZ(), CP_ESCORT_R)
+        if (foe2 && d < CP_RUN_FAR && cpFight(e, foe2)) { CP_FOE[u] = foe2; return }
+        delete CP_FOE[u]
         try {
             // в 32 блоках - подтягивается шагом; дальше 32 - идёт быстрее; дальше 64 - бежит
             if (act !== "стоит") {
@@ -690,257 +716,626 @@ function cpJava() {
     }
 }
 
-/** Что считаем зерном: по нему выбирается нужный контейнер. */
-var CP_GRAIN = /grain|seeds|food\/(wheat|barley|oat|rye|rice|maize)/;
-/** Что крестьянин вообще относит в хранилище (еда, семена, волокно - не инструменты и не руда). */
-var CP_HAUL = /food\/|grain|seeds|straw|jute|papyrus|sugarcane|wool|hide/;
-
-var CP_PLOT_R = 14;            // в каком радиусе от базы ищем грядки
-var CP_PLOT_TTL = 24000;       // как часто пересматриваем, где грядки (игровые сутки)
-var CP_HAUL_R = 10;            // в каком радиусе подбираем лежащее
-var CP_WORK_EVERY = 100;       // как часто работаем (тиков)
-
-/**
- * Грядки рядом с базой. Список запоминается на игровые сутки: обходить тысячи блоков каждый
- * раз незачем, а новые грядки появляются не быстрее.
- */
-function cpPlots(level, s, b, now) {
-    if (s.comp.plots && now - (s.comp.plotsAt || 0) < CP_PLOT_TTL) return s.comp.plots;
-    var out = [];
-    for (var x = b.x - CP_PLOT_R; x <= b.x + CP_PLOT_R; x++) {
-        for (var z = b.z - CP_PLOT_R; z <= b.z + CP_PLOT_R; z++) {
-            for (var y = b.y - 3; y <= b.y + 4; y++) {
-                var id = null;
-                try { id = String(level.getBlock(x, y, z).id); } catch (e) { continue }
-                if (id.indexOf("tfc:crop/") !== 0) continue;
-                out.push([x, y, z]);
-            }
-        }
-    }
-    s.comp.plots = out;
-    s.comp.plotsAt = now;
-    if (out.length) cpLog(s.name + ": грядок рядом с базой - " + out.length);
-    return out;
-}
-
-/** Собрать грядку её же правым щелчком. true - собралось, false - не спелая или нельзя. */
-function cpReap(level, x, y, z) {
-    if (!cpJava()) return false;
-    try {
-        var pos = new CP_BlockPos(x, y, z);
-        var state = level.getBlockState(pos);
-        var fake = CP_FakePlayer.getMinecraft(level);
-        if (!fake) return false;
-        var hit = new CP_HitResult(new CP_Vec3(x + 0.5, y + 0.5, z + 0.5), CP_Direction.UP, pos, false);
-        var res = String(state.use(level, fake, CP_Hand.MAIN_HAND, hit));
-        return res === "SUCCESS" || res === "CONSUME" || res === "CONSUME_PARTIAL";
-    } catch (e) { return false }
-}
-
-var CP_STORE_TTL = 6000;       // как часто пересматриваем, где стоят хранилища
-
-/**
- * Где у базы хранилища. Обход куба в тридцать три блока стоит дорого, поэтому запоминаем
- * КООРДИНАТЫ на CP_STORE_TTL тиков, а сами обработчики берём заново каждый раз: сундук могли
- * разобрать, и держать ссылку на его обработчик нельзя.
- */
-function cpStorePlaces(level, s, b, now) {
-    if (s.comp.stores && now - (s.comp.storesAt || 0) < CP_STORE_TTL) return s.comp.stores;
-    var out = [];
-    for (var x = b.x - 16; x <= b.x + 16; x++) {
-        for (var z = b.z - 16; z <= b.z + 16; z++) {
-            for (var y = b.y - 4; y <= b.y + 6; y++) {
-                var be = null;
-                try { be = level.getBlock(x, y, z).getEntity(); } catch (e) { continue }
-                if (!be) continue;
-                var ok = false;
-                try { ok = !!be.getCapability(LB_ItemHandler).resolve().get(); } catch (e) { continue }
-                if (ok) out.push([x, y, z]);
-            }
-        }
-    }
-    s.comp.stores = out;
-    s.comp.storesAt = now;
-    if (out.length) cpLog(s.name + ": хранилищ у базы - " + out.length);
-    return out;
-}
-
-/** Хранилища с содержимым: [{ h, x, y, z, grain, free }], grain - сколько в нём зерна. */
-function cpStores(level, s, b, now) {
-    var out = [];
-    cpStorePlaces(level, s, b, now).forEach(p => {
-        var be = null;
-        try { be = level.getBlock(p[0], p[1], p[2]).getEntity(); } catch (e) { return }
-        if (!be) return;
-        var h = null;
-        try { h = be.getCapability(LB_ItemHandler).resolve().get(); } catch (e) { return }
-        if (!h) return;
-        var grain = 0, free = 0;
+/** Самое сытное из хранилищ базы, найденных обходом (кроме «Не трогать» и продажи). true - поел. */
+function cpEatScan(level, b) {
+    var sc = cpScanOf(b);
+    var list = cpStoreList(level, sc, b, 32).filter(a => a.tag !== "не трогать" && a.tag !== "продажа");
+    var best = null, bestScore = -1;
+    list.forEach(a => {
         try {
-            for (var i = 0; i < h.getSlots(); i++) {
-                var st = h.getStackInSlot(i);
-                if (!st || st.isEmpty()) { free++; continue }
-                if (CP_GRAIN.test(String(st.id))) grain += st.getCount();
+            for (var i = 0; i < a.h.getSlots(); i++) {
+                var st = a.h.getStackInSlot(i);
+                if (!st || st.isEmpty() || !CP_FOOD.test(String(st.id))) continue;
+                var id = String(st.id), score = 1;
+                if (/cooked_|bread|stew|soup|pie|sandwich|pizza|cake/.test(id)) score = 3;
+                if (/stew|soup|pie|pizza|sandwich/.test(id)) score = 5;
+                if (score > bestScore) { bestScore = score; best = { h: a.h, slot: i } }
             }
-        } catch (e) { return }
-        out.push({ h: h, x: p[0], y: p[1], z: p[2], grain: grain, free: free });
+        } catch (e) { }
     });
+    if (!best) return false;
+    best.h.extractItem(best.slot, 1, false);
+    return true;
+}
+
+// ─── Обход базы: грядки, кусты, плодовые деревья, хранилища ──────────────────
+//
+// База раскинута от центра на сотни блоков, обходить её поблочно нельзя. Поэтому обходим
+// ПРОГРУЖЕННЫЕ чанки и смотрим только их блок-сущности: у посевов TFC, ягодных кустов, плодовых
+// деревьев и у всех хранилищ они есть. Обход один на базу (общий для всех её жителей), кусками по
+// CP_SCAN_STEP чанков за раз, от центра по кругу наружу - ближнее находится первым.
+//
+// Хранилища размечаются ИМЕНЕМ (переименовать на наковальне) - первый шаг к складам как в RimWorld:
+//   «Зерно», «Урожай», «Амбар» - сюда крестьянин несёт собранное;
+//   «Казна»                    - отсюда знать берёт товар и сюда кладёт выручку;
+//   «На продажу», «Продажа»    - отсюда знать тоже продаёт;
+//   «Не трогать»               - сюда никто из жителей не кладёт и отсюда не берёт.
+
+var CP_WORK_R = 500;           // на сколько блоков от центра базы жители работают
+var CP_SCAN_STEP = 100;        // столько чанков за один шаг обхода
+var CP_SCAN = {};              // "x,z" базы -> { order, i, plots: { "x,y,z": 1 }, stores: { "x,y,z": { id, name, tag } }, sweeps }
+var CP_SPIRAL = null;          // смещения чанков от центра, по возрастанию расстояния
+var CP_Regs = null, CP_Block = null, CP_Calendars = null, CP_Integer = null;
+
+function cpRegs() {
+    if (CP_Regs) return true;
+    try {
+        CP_Regs = Java.loadClass("net.minecraft.core.registries.BuiltInRegistries");
+        CP_Block = Java.loadClass("net.minecraft.world.level.block.Block");
+        CP_Integer = Java.loadClass("java.lang.Integer");
+        try { CP_Calendars = Java.loadClass("net.dries007.tfc.util.calendar.Calendars"); } catch (e) { CP_Calendars = null }
+        return true;
+    } catch (e) { cpLog("обход базы: классы не загрузились - " + e); return false }
+}
+
+function cpSpiral() {
+    if (CP_SPIRAL) return CP_SPIRAL;
+    var r = Math.ceil(CP_WORK_R / 16), out = [];
+    for (var dx = -r; dx <= r; dx++) for (var dz = -r; dz <= r; dz++) if (dx * dx + dz * dz <= r * r) out.push([dx, dz, dx * dx + dz * dz]);
+    out.sort((a, b) => a[2] - b[2]);
+    CP_SPIRAL = out;
     return out;
 }
 
-/** Куда относить: где больше всего зерна, а если зерна нет нигде - где больше места. */
-function cpGrainStore(stores) {
-    var best = null;
-    stores.forEach(st => {
-        if (!best) { best = st; return }
-        if (st.grain > best.grain) { best = st; return }
-        if (st.grain === best.grain && st.free > best.free) best = st;
-    });
-    if (best && best.grain === 0 && best.free === 0) return null;
-    return best;
-}
-
-/** Положить стопку в хранилище. Возвращает, сколько осталось не влезшим. */
-function cpPut(store, stack) {
-    var rest = stack;
-    try {
-        for (var i = 0; i < store.h.getSlots() && !rest.isEmpty(); i++) {
-            rest = store.h.insertItem(i, rest, false);
-        }
-    } catch (e) { return stack }
-    return rest;
-}
-
-/** Подобрать лежащее рядом и отнести в хранилище. Возвращает, сколько стопок унесено. */
-function cpHaul(level, e, store) {
-    if (typeof RAID_AABBClass === "undefined") return 0;
-    var list = null;
-    try {
-        list = level.getEntities(e, new RAID_AABBClass(e.getX() - CP_HAUL_R, e.getY() - 3, e.getZ() - CP_HAUL_R,
-            e.getX() + CP_HAUL_R, e.getY() + 3, e.getZ() + CP_HAUL_R));
-    } catch (err) { return 0 }
-    var taken = 0;
-    for (var i = 0; i < list.size() && taken < 4; i++) {
-        var it = list.get(i);
-        if (!it || String(it.type) !== "minecraft:item") continue;
-        var stack = null;
-        try { stack = it.getItem(); } catch (err) { continue }
-        if (!stack || stack.isEmpty()) continue;
-        if (!CP_HAUL.test(String(stack.id))) continue;
-        var rest = cpPut(store, stack.copy());
-        if (rest.isEmpty()) { try { it.discard(); } catch (err) { } taken++; }
-        else if (rest.getCount() < stack.getCount()) { try { it.setItem(rest); } catch (err) { } taken++; }
-    }
-    return taken;
-}
-
-/** Крестьянин: собрать одну спелую грядку и отнести лежащее в контейнер с зерном. */
-function cpWorkPeasant(level, c, now) {
-    var e = c.e, s = c.s, b = s.comp.base;
-    var stores = cpStores(level, s, b, now);
-    if (!stores.length) return;
-    var store = cpGrainStore(stores);
-    if (!store) return;
-
-    // жатва: по одной грядке за раз, начиная с той, где остановились
-    var plots = cpPlots(level, s, b, now);
-    if (plots.length) {
-        var at = Number(s.comp.plotAt || 0) % plots.length;
-        for (var n = 0; n < plots.length; n++) {
-            var p = plots[(at + n) % plots.length];
-            var d2 = Math.pow(p[0] - e.getX(), 2) + Math.pow(p[2] - e.getZ(), 2);
-            if (d2 > 4) {
-                // идём к ближней грядке, а жнём, когда дойдём
-                try { e.getNavigation().moveTo(p[0] + 0.5, p[1], p[2] + 0.5, 0.8); } catch (err) { }
-                if (d2 < CP_PLOT_R * CP_PLOT_R * 4) break;
-                continue;
-            }
-            if (cpReap(level, p[0], p[1], p[2])) {
-                s.comp.plotAt = (at + n + 1) % plots.length;
-                break;
-            }
-        }
-    }
-    // разноска: подобрать выпавшее и всё прочее добро у базы
-    var taken = cpHaul(level, e, store);
-    if (taken > 0) {
-        try { e.getNavigation().moveTo(store.x + 0.5, store.y, store.z + 0.5, 0.8); } catch (err) { }
-    }
-}
-
-// ─── Знать: торг с караванами ────────────────────────────────────────────────
-//
-// Торговец каравана держит свой вид и ассортимент у себя в данных (tfg_trader_kind,
-// tfg_trader_offers - список { item, count, price, stock }), поэтому ничего заново не
-// придумываем: знать покупает из того же ассортимента и по тем же ценам, что и игрок.
-//
-// Деньги берутся из сундука, где монет больше всего (по плану этапа 7). Считает и раскладывает
-// их coins.js: в дело идут только верифицированные, сдача возвращается в тот же сундук.
-
-var CP_DEAL_EVERY = 1200;      // как часто знать заключает сделку (тиков)
-var CP_TRADER_R = 28;          // в каком радиусе от базы ищем торговца
-
-var CP_DEAL_SAY = ["Караван пришёл - надо брать, пока не ушли.", "Сторговался. Недорого, по нынешним временам.",
-    "Взял для хозяйства. Деньги в сундуке были, я не из своих платил.",
-    "Пока ты ходишь где-то, дела делаются здесь."];
-var CP_DEAL_POOR = ["Монет в сундуке нет. На что я, по-твоему, должен торговать?",
-    "Караван есть, денег нет. Так торговли не выйдет."];
-
-/** Торговец каравана рядом с базой (не житель этой базы). */
-function cpTraderNear(level, e, b) {
-    if (typeof RAID_AABBClass === "undefined") return null;
-    var list = null;
-    try {
-        list = level.getEntities(e, new RAID_AABBClass(b.x - CP_TRADER_R, b.y - 12, b.z - CP_TRADER_R,
-            b.x + CP_TRADER_R, b.y + 12, b.z + CP_TRADER_R));
-    } catch (err) { return null }
-    for (var i = 0; i < list.size(); i++) {
-        var t = list.get(i);
-        try {
-            if (!t || !t.isAlive() || !t.getTags().contains("tfg_trader")) continue;
-            if (t.getTags().contains("tfg_companion")) continue;
-            if (!String(t.persistentData.getString("tfg_trader_offers"))) continue;
-            return t;
-        } catch (err) { }
-    }
+/** Метка хранилища по имени: "зерно" | "казна" | "продажа" | "не трогать" | null. */
+function cpStoreTag(name) {
+    var n = String(name || "").toLowerCase();
+    if (!n) return null;
+    if (n.indexOf("не трог") >= 0) return "не трогать";
+    if (/зерн|урожа|амбар/.test(n)) return "зерно";
+    if (n.indexOf("казн") >= 0) return "казна";
+    if (n.indexOf("продаж") >= 0) return "продажа";
     return null;
 }
 
+/** Что из блок-сущностей нам нужно: "грядка" | "куст" | "хранилище" | null. */
+var CP_STORE_BE = /chest|crate|drawer|cabinet|storage|basket|shulker|minecraft:barrel|trunk|vessel|shelf/;
+function cpBeKind(beKey, blockKey, beCls) {
+    if (/dead|wild/.test(blockKey)) return null;
+    if (/crop/.test(beKey) || /CropBlockEntity/.test(beCls || "")) return /pumpkin|melon/.test(blockKey) ? "лоза" : "грядка";
+    if (/^tfc:plant\/.*(bush|_leaves)$/.test(blockKey) || /berry_bush|fruit_tree/.test(beKey)) return "куст";
+    if (CP_STORE_BE.test(beKey) && !/tfc:barrel|furnace|machine/.test(beKey)) return "хранилище";
+    return null;
+}
+
+function cpScanOf(b) {
+    var key = b.x + "," + b.z;
+    if (!CP_SCAN[key]) CP_SCAN[key] = { i: 0, plots: {}, stores: {}, sweeps: 0, chunks: 0, at: 0 };
+    return CP_SCAN[key];
+}
+
+/**
+ * Шаг обхода базы: CP_SCAN_STEP чанков. Зовётся раз в CP_WORK_EVERY тиков на базу.
+ * Только проверенные в сборке способы: level.hasChunk / level.getChunk (казна, stashes.js),
+ * level.getBlock(...).id (весь код поселений), getCapability(LB_ItemHandler) (еда). Прежний обход
+ * через getChunkSource().getChunkNow() и реестры молча не находил ничего (29.10.2026).
+ */
+function cpScanStep(level, b, now) {
+    var sc = cpScanOf(b);
+    if (sc.at === now) return;
+    sc.at = now;
+    var order = cpSpiral();
+    var cx0 = b.x >> 4, cz0 = b.z >> 4;
+    for (var k = 0; k < CP_SCAN_STEP; k++) {
+        var o = order[sc.i];
+        sc.i++;
+        if (sc.i >= order.length) {
+            sc.i = 0; sc.sweeps++;
+            if (!Object.keys(sc.plots).length && !Object.keys(sc.stores).length)
+                cpLog("обход базы " + b.x + " " + b.z + ": круг " + sc.sweeps + " - ничего не найдено (чанков прогружено " + sc.chunks + ", блок-сущностей " + (sc.bes || 0) + ")");
+        }
+        var cx = cx0 + o[0], cz = cz0 + o[1];
+        var ch = null;
+        try { if (level.hasChunk(cx, cz)) ch = level.getChunk(cx, cz) } catch (e) { ch = null; sc.err = String(e) }
+        if (!ch) continue;
+        sc.chunks++;
+        var poses = null;
+        try { poses = ch.getBlockEntitiesPos().toArray() } catch (e) { sc.err = String(e); continue }
+        for (var j = 0; j < poses.length; j++) {
+            var p = poses[j];
+            sc.bes = (sc.bes || 0) + 1;
+            try {
+                var x = p.getX(), y = p.getY(), z = p.getZ();
+                var blk = level.getBlock(x, y, z);
+                var blockKey = String(blk.id);
+                var be = blk.getEntity();
+                if (!be) continue;
+                var beCls = "";
+                try { beCls = String(be.getClass().getSimpleName()) } catch (e3) { }
+                var pk = x + "," + y + "," + z;
+                // климатическая станция FirmaLife: её комната - погреб (tfg/cellar_freezing.js)
+                if (typeof CF_STATION_BLOCK !== "undefined" && blockKey === CF_STATION_BLOCK) { if (!sc.stations) sc.stations = {}; sc.stations[pk] = { x: x, y: y, z: z }; continue }
+                var kind = cpBeKind(cpClsKey(beCls), blockKey, beCls);
+                if (kind === "лоза") {
+                    // тыква и дыня TFC: лоза сама не жнётся (сломать - погибнет), плод растёт блоком рядом
+                    [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(o2 => {
+                        try {
+                            var fx = x + o2[0], fz = z + o2[1];
+                            if (/^tfc:(pumpkin|melon)$/.test(String(level.getBlock(fx, y, fz).id))) sc.plots[fx + "," + y + "," + fz] = "плод";
+                        } catch (e4) { }
+                    });
+                    continue;
+                }
+                if (kind === "грядка" || kind === "куст") { sc.plots[pk] = kind; continue }
+                // хранилище: есть обработчик вещей и это не машина
+                if (/Machine|Furnace|Boiler|Forge|Pot|Barrel|Crucible|Bloomery|Grill|Quern|Anvil/.test(beCls) && !/minecraft:barrel/.test(blockKey)) continue;
+                if (!/Chest|Crate|Drawer|Cabinet|Storage|Basket|Shulker|Barrel|Trunk|Vessel|Shelf|Container|Hanger|Jarbnet|Rack/i.test(beCls + " " + blockKey)) continue;
+                var h = null;
+                try { h = be.getCapability(LB_ItemHandler).resolve().get() } catch (e5) { h = null }
+                if (!h) continue;
+                var name = "";
+                try { var cn = be.getCustomName(); if (cn) name = String(cn.getString()); } catch (e2) { }
+                sc.stores[pk] = { id: blockKey, name: name, tag: cpStoreTag(name), x: x, y: y, z: z };
+            } catch (e1) { sc.err = String(e1) }
+        }
+    }
+}
+
+/** Класс блок-сущности -> что-то вроде ключа для cpBeKind (посев, куст). */
+function cpClsKey(cls) {
+    if (/CropBlockEntity/.test(cls)) return "crop";
+    if (/BerryBush|FruitTree|Bush/.test(cls)) return "berry_bush";
+    return cls.toLowerCase();
+}
+
+function cpPosOf(pk) { var a = pk.split(","); return { x: Number(a[0]), y: Number(a[1]), z: Number(a[2]) } }
+function cpLoadedAt(level, x, z) { try { return !!level.getChunkSource().getChunkNow(x >> 4, z >> 4) } catch (e) { return false } }
+
+/** Обработчик вещей хранилища или null (разобрали - запись убираем). */
+function cpHandlerAt(level, sc, pk) {
+    var st = sc.stores[pk];
+    if (!st) return null;
+    if (!cpLoadedAt(level, st.x, st.z)) return null;
+    var be = null;
+    try { be = level.getBlock(st.x, st.y, st.z).getEntity(); } catch (e) { be = null }
+    var h = null;
+    try { h = be ? be.getCapability(LB_ItemHandler).resolve().get() : null; } catch (e) { h = null }
+    if (!h) { delete sc.stores[pk]; return null }
+    // имя могли сменить на наковальне
+    try { var cn = be.getCustomName(); st.name = cn ? String(cn.getString()) : ""; st.tag = cpStoreTag(st.name) } catch (e) { }
+    return h;
+}
+
+/** Для журнала: сколько хранилищ стоит в погребах и какие (первые три). */
+function cpCellarInfo(level, sc) {
+    try {
+        var cel = cpCellars(level, sc);
+        if (!cel.length || !cpJava()) return " (комнаты погребов не читаются)";
+        var inside = [];
+        for (var pk in sc.stores) {
+            var st = sc.stores[pk];
+            var bp = new CP_BlockPos(st.x, st.y, st.z);
+            for (var i = 0; i < cel.length; i++) if (cel[i].contains(bp)) { inside.push(st.id.replace(/^[a-z_]+:/, "") + "@" + pk); break }
+        }
+        return ", в погребах хранилищ " + inside.length + (inside.length ? " (" + inside.slice(0, 3).join(", ") + ")" : "");
+    } catch (e) { return " (погреба: сбой " + e + ")" }
+}
+
+/** Блоки погребов базы (комнаты климатических станций): массив Java-множеств BlockPos. */
+function cpCellars(level, sc) {
+    var out = [];
+    if (!sc.stations || typeof cfCellarPositions !== "function") return out;
+    for (var k in sc.stations) {
+        var st = sc.stations[k];
+        try {
+            var be = level.getBlock(st.x, st.y, st.z).getEntity();
+            if (!be) { delete sc.stations[k]; continue }
+            var pos = cfCellarPositions(be);
+            if (pos && !pos.isEmpty()) out.push(pos);
+        } catch (e) { }
+    }
+    return out;
+}
+
+/** Хранилища базы с содержимым, ближние к точке первыми: [{ pk, h, x, y, z, tag, name, grain, coins, free, d, cellar }]. */
+function cpStoreList(level, sc, from, limit) {
+    var all = [];
+    for (var pk in sc.stores) {
+        var st = sc.stores[pk];
+        all.push({ pk: pk, x: st.x, y: st.y, z: st.z, d: Math.pow(st.x - from.x, 2) + Math.pow(st.z - from.z, 2) });
+    }
+    all.sort((a, b) => a.d - b.d);
+    var out = [];
+    var cellars = cpCellars(level, sc);
+    for (var i = 0; i < all.length && out.length < (limit || 48); i++) {
+        var a = all[i];
+        var h = cpHandlerAt(level, sc, a.pk);
+        if (!h) continue;
+        var st2 = sc.stores[a.pk];
+        a.h = h; a.tag = st2.tag; a.name = st2.name;
+        a.cellar = false;
+        if (cellars.length && cpJava()) { try { var bp = new CP_BlockPos(a.x, a.y, a.z); for (var ci = 0; ci < cellars.length && !a.cellar; ci++) a.cellar = !!cellars[ci].contains(bp) } catch (e) { } }
+        a.grain = 0; a.free = 0;
+        try {
+            for (var j = 0; j < h.getSlots(); j++) {
+                var s = h.getStackInSlot(j);
+                if (!s || s.isEmpty()) { a.free++; continue }
+                if (CP_GRAIN.test(String(s.id))) a.grain += s.getCount();
+            }
+        } catch (e) { continue }
+        out.push(a);
+    }
+    return out;
+}
+
+// ─── Мешок жителя ────────────────────────────────────────────────────────────
+//
+// Собранное житель носит при себе (s.comp.bag), пока не дойдёт до хранилища. Хранилища нет -
+// носит, пока не появится: игрок может поставить сундук поближе. Вещи хранятся вместе с NBT
+// (у еды TFC в нём дата - от неё зависит порча).
+
+var CP_BAG_MAX = 27;           // стопок в мешке
+var CP_BAG_DELIVER = 9;        // с таким числом стопок уже несёт в хранилище
+
+function cpBag(s) { if (!s.comp.bag) s.comp.bag = []; return s.comp.bag }
+function cpBagCount(s) { var n = 0; cpBag(s).forEach(x => { n += Number(x.count) || 0 }); return n }
+
+function cpBagAdd(s, stack) {
+    if (!stack || stack.isEmpty()) return;
+    var bag = cpBag(s);
+    var id = String(stack.id), nbt = stack.nbt ? String(stack.nbt) : "";
+    for (var i = 0; i < bag.length; i++) if (bag[i].id === id && (bag[i].nbt || "") === nbt && bag[i].count < 64) {
+        var add = Math.min(64 - bag[i].count, stack.getCount());
+        bag[i].count += add;
+        if (add >= stack.getCount()) return;
+        stack = stack.copy(); stack.shrink(add);
+    }
+    bag.push({ id: id, count: stack.getCount(), nbt: nbt });
+}
+
+function cpBagStack(x) {
+    try { return x.nbt ? Item.of(x.id, x.count, x.nbt) : Item.of(x.id, x.count) } catch (e) { return null }
+}
+
+/** Выложить мешок в хранилище. Сколько стопок выложено. */
+function cpBagDump(s, h) {
+    var bag = cpBag(s), left = [], put = 0;
+    bag.forEach(x => {
+        var st = cpBagStack(x);
+        if (!st) return;
+        var rest = st;
+        try { for (var i = 0; i < h.getSlots() && !rest.isEmpty(); i++) rest = h.insertItem(i, rest, false) } catch (e) { }
+        if (rest.isEmpty()) put++;
+        else { if (rest.getCount() < st.getCount()) put++; left.push({ id: x.id, count: rest.getCount(), nbt: x.nbt }) }
+    });
+    s.comp.bag = left;
+    return put;
+}
+
+// ─── Крестьянин ──────────────────────────────────────────────────────────────
+
+/** Что считаем зерном: по нему выбирается нужный контейнер. */
+var CP_GRAIN = /grain|seeds|food\/(wheat|barley|oat|rye|rice|maize)/;
+/** Что крестьянин подбирает с земли (еда, семена, волокно - не инструменты и не руда). */
+var CP_HAUL = /food\/|grain|seeds|straw|jute|papyrus|sugarcane|wool|hide|fruit|berry/;
+var CP_HAUL_R = 8;             // в каком радиусе подбираем лежащее
+var CP_WORK_EVERY = 100;       // как часто знать торгует и идёт обход базы (тиков)
+var CP_REACH = 3;              // с какого расстояния жнёт и кладёт
+var CP_RIPE_LOOK = 400;        // сколько ближайших грядок проверять на спелость за один ход
+
+function cpMaxAge(state) {
+    try { return Number(state.getBlock().getMaxAge()) } catch (e) { }
+    try {
+        var vals = state.getBlock().getStateDefinition().getProperty("age").getPossibleValues().toArray();
+        var m = 0; for (var i = 0; i < vals.length; i++) m = Math.max(m, Number(vals[i]));
+        return m;
+    } catch (e) { return 99 }
+}
+
+/** Рост посева TFC (0..1) из его блок-сущности или null, если не читается. */
+function cpGrowth(level, pos) {
+    try {
+        var be = level.getBlockEntity(new CP_BlockPos(pos.x, pos.y, pos.z));
+        if (!be) return null;
+        var g = Number(be.getGrowth());
+        return isFinite(g) ? g : null;
+    } catch (e) { return null }
+}
+
+/** Спело ли: посев - рост дошёл до 1; куст и плодовое дерево - в плодах. */
+function cpRipe(level, pos, kind) {
+    // классы (BlockPos) грузит cpJava; без него проверка падала, и всё считалось неспелым - жатвы не было
+    if (!cpJava()) return false;
+    try {
+        var blk = level.getBlock(pos.x, pos.y, pos.z);
+        var id = String(blk.id), props = blk.properties;
+        if (kind === "плод") return /^tfc:(pumpkin|melon)$/.test(id) ? true : null;
+        if (kind === "грядка") {
+            if (/dead|wild/.test(id) || props.get("age") === null || props.get("age") === undefined) return null;   // грядки больше нет
+            if (props.get("part") && String(props.get("part")) === "top") return false;   // жнём по нижней части
+            // Спелость - как у самой TFC: рост блок-сущности посева дошёл до 1. По стадии в свойстве age
+            // считалось неверно: «спелыми» выходили зелёные свёкла и редис (29.10.2026).
+            var g = cpGrowth(level, pos);
+            if (g !== null) return g >= 1;
+            return Number(props.get("age")) >= cpMaxAge(level.getBlockState(new CP_BlockPos(pos.x, pos.y, pos.z)));
+        }
+        if (!/^tfc:plant\//.test(id)) return null;
+        return String(props.get("lifecycle")) === "fruiting";
+    } catch (e) { return false }
+}
+
+/** Сжать посев: урожай в мешок, одно семя - обратно в землю, рост с нуля от нынешнего дня. */
+function cpReapCrop(level, s, pos) {
+    if (!cpJava() || !cpRegs()) return false;
+    try {
+        var bp = new CP_BlockPos(pos.x, pos.y, pos.z);
+        var state = level.getBlockState(bp);
+        var block = state.getBlock();
+        var drops = CP_Block.getDrops(state, level, bp, level.getBlockEntity(bp));
+        // высокий посев (кукуруза, джут): верх снимаем вместе
+        var top = bp.above(), topState = level.getBlockState(top);
+        if (topState.getBlock() === block) {
+            try { drops.addAll(CP_Block.getDrops(topState, level, top, level.getBlockEntity(top))) } catch (e) { }
+            level.removeBlock(top, false);
+        }
+        var seed = false;
+        for (var i = 0; i < drops.size(); i++) {
+            var st = drops.get(i);
+            if (!seed && /seeds/.test(String(st.id))) { st.shrink(1); seed = true }
+            cpBagAdd(s, st);
+        }
+        if (seed) {
+            var fresh = null;
+            try { fresh = block.getStateForAge(0) } catch (e) { fresh = block.defaultBlockState() }
+            // старый посев убираем целиком: иначе блок-сущность остаётся с прежним ростом, и TFC тут же
+            // возвращает растение к прежней стадии - «сжал, а с ним ничего не случилось» (29.10.2026)
+            level.removeBlock(bp, false);
+            level.setBlock(bp, fresh, 3);
+            var be = level.getBlockEntity(bp);
+            var t = 0;
+            try { t = Number(CP_Calendars.SERVER.getTicks()) } catch (e) { t = 0 }
+            try { be.setGrowth(0); be.setYield(0); be.setExpiry(0) } catch (e) { }
+            try { if (t) { be.setLastGrowthTick(t); be.setLastCalendarUpdateTick(t) } } catch (e) { }
+        } else level.removeBlock(bp, false);
+        return true;
+    } catch (e) { cpTickFail("жатва", e, Number(level.getServer().getTickCount())); return false }
+}
+
+/** Сорвать плод (тыкву, дыню): блок - в мешок. Лоза остаётся. */
+function cpReapFruit(level, s, pos) {
+    if (!cpJava() || !cpRegs()) return false;
+    try {
+        var bp = new CP_BlockPos(pos.x, pos.y, pos.z);
+        var state = level.getBlockState(bp);
+        var drops = CP_Block.getDrops(state, level, bp, level.getBlockEntity(bp));
+        for (var i = 0; i < drops.size(); i++) cpBagAdd(s, drops.get(i));
+        level.removeBlock(bp, false);
+        return true;
+    } catch (e) { return false }
+}
+
+/** Обобрать куст или плодовое дерево его же правым щелчком; плоды - из рук подставного в мешок. */
+function cpReapBush(level, s, pos) {
+    if (!cpJava()) return false;
+    try {
+        var bp = new CP_BlockPos(pos.x, pos.y, pos.z);
+        var fake = CP_FakePlayer.getMinecraft(level);
+        if (!fake) return false;
+        var hit = new CP_HitResult(new CP_Vec3(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5), CP_Direction.UP, bp, false);
+        level.getBlockState(bp).use(level, fake, CP_Hand.MAIN_HAND, hit);
+        var inv = fake.getInventory(), got = false;
+        for (var i = 0; i < inv.getContainerSize(); i++) {
+            var st = inv.getItem(i);
+            if (!st || st.isEmpty()) continue;
+            cpBagAdd(s, st.copy());
+            inv.setItem(i, Item.empty);
+            got = true;
+        }
+        return got;
+    } catch (e) { return false }
+}
+
+/** Подобрать лежащее рядом в мешок. Сколько стопок подобрано. */
+function cpPickUp(level, e, s) {
+    var taken = 0;
+    try {
+        var list = level.getEntitiesWithin(new CP_AABB(e.getX() - CP_HAUL_R, e.getY() - 3, e.getZ() - CP_HAUL_R,
+            e.getX() + CP_HAUL_R, e.getY() + 3, e.getZ() + CP_HAUL_R));
+        for (var i = 0; i < list.size() && taken < 6 && cpBag(s).length < CP_BAG_MAX; i++) {
+            var it = list.get(i);
+            if (!it || String(it.type) !== "minecraft:item") continue;
+            var st = it.getItem();
+            if (!st || st.isEmpty() || !CP_HAUL.test(String(st.id))) continue;
+            cpBagAdd(s, st.copy());
+            it.discard();
+            taken++;
+        }
+    } catch (err) { }
+    return taken;
+}
+
+/** Куда нести урожай: «Зерно» ближайшее, иначе где больше зерна, иначе где есть место. «Не трогать», казну и продажу не берём. */
+function cpGrainTarget(list) {
+    var ok = list.filter(a => a.tag !== "не трогать" && a.tag !== "казна" && a.tag !== "продажа" && a.free > 0);
+    var cellar = ok.filter(a => a.cellar);                 // погреб - первым делом: там еда не портится
+    if (cellar.length) return cellar[0];
+    var named = ok.filter(a => a.tag === "зерно");
+    if (named.length) return named[0];
+    var best = null;
+    ok.forEach(a => { if (!best || a.grain > best.grain) best = a });
+    return best && best.grain > 0 ? best : (ok[0] || null);
+}
+
+/**
+ * Идти к точке - как ходят жители поселения (settlers.js, seMove/seStuck/seWatch): открывать двери на
+ * пути; стоит две секунды - прыжок или прыжок на уступ; третья неудача подряд - шаг переносом до
+ * CP_STEP блоков к цели. Прежде шла одна навигация: путь к соседней грядке не строился, и крестьянин
+ * жал только то, до чего дотягивался с места (29.10.2026).
+ */
+var CP_MV = {};                // uuid -> { gx, gz, px, pz, pt, fails }
+var CP_STEP = 3;
+function cpGo(e, x, y, z, speed) {
+    var u = String(e.uuid), now = Number(e.level.getTime());
+    var m = CP_MV[u];
+    if (!m || Math.pow(m.gx - x, 2) + Math.pow(m.gz - z, 2) > 9) m = CP_MV[u] = { gx: x, gz: z, fails: 0 };
+    m.gx = x; m.gz = z;
+    try { if (typeof seOpenDoors === "function") seOpenDoors(e) } catch (err) { }
+    try { cpWalk(e, x + 0.5, y, z + 0.5, speed) } catch (err) { }
+    var d2 = Math.pow(e.getX() - x - 0.5, 2) + Math.pow(e.getZ() - z - 0.5, 2);
+    if (d2 < 6.25) { m.fails = 0; return }
+    if (!m.pt || now - m.pt >= 40) {
+        var moved = m.pt ? Math.pow(e.getX() - m.px, 2) + Math.pow(e.getZ() - m.pz, 2) : 99;
+        m.px = e.getX(); m.pz = e.getZ(); m.pt = now;
+        if (moved > 0.6) { m.fails = 0; return }
+        try { if (typeof seLeap === "function" && seLeap(e, m)) { m.fails = 0; return } } catch (err) { }
+        try { e.getJumpControl().jump() } catch (err) { }
+        if (m.fails === 0) { try { if (typeof seOpenDoors === "function") seOpenDoors(e, 5) } catch (err) { } }
+        m.fails++;
+        if (m.fails >= 3) {
+            m.fails = 0;
+            var d = Math.sqrt(d2) || 1, len = Math.min(CP_STEP, d);
+            var nx = e.getX() + (x + 0.5 - e.getX()) / d * len, nz = e.getZ() + (z + 0.5 - e.getZ()) / d * len;
+            var ny = e.getY();
+            try { ny = Number(e.level.getHeight(CP_HEIGHT, Math.floor(nx), Math.floor(nz))) } catch (err) { }
+            // переносом - только по ровному: не на крышу и не в яму
+            if (Math.abs(ny - e.getY()) <= 3) { try { e.teleportTo(nx, ny, nz); cpStepped++ } catch (err) { } }
+        }
+    }
+}
+var cpStepped = 0;
+
+// Недостижимые цели (хранилище за стеной, грядка за забором): за CP_STUCK_GOAL тиков не стал ближе
+// хотя бы на блок - цель вычёркивается на CP_BAD_TTL тиков. 29.10.2026 крестьянин минуту шёл к
+// сундуку, до которого не дойти, и больше ничего не делал.
+var CP_STUCK_GOAL = 200, CP_BAD_TTL = 6000;
+var CP_BAD = {};               // "uuid|x,y,z" -> до какого тика цель вычеркнута
+var CP_GOAL = {};              // uuid -> { key, d, at }
+function cpBad(e, key, now) { var t = CP_BAD[String(e.uuid) + "|" + key]; return !!t && now < t }
+/** Идёт к цели key: false, если застрял (цель вычеркнута). */
+function cpApproach(e, key, d, now) {
+    var u = String(e.uuid), g = CP_GOAL[u];
+    if (!g || g.key !== key || d < g.d - 1) { CP_GOAL[u] = { key: key, d: d, at: now }; return true }
+    if (now - g.at > CP_STUCK_GOAL) { CP_BAD[u + "|" + key] = now + CP_BAD_TTL; delete CP_GOAL[u]; return false }
+    return true
+}
+
+/**
+ * Крестьянин: идёт к ближайшему созревшему (посев, куст, плодовое дерево) в CP_WORK_R блоках от
+ * базы, собирает в мешок, подбирает выпавшее. Мешок полон или спелого нет - несёт в хранилище;
+ * хранилища нет - носит с собой.
+ */
+function cpWorkPeasant(level, c, now) {
+    var e = c.e, s = c.s, b = s.comp.base;
+    var sc = cpScanOf(b);
+    var here = { x: e.getX(), y: e.getY(), z: e.getZ() };
+    var job = s.comp.job || null;
+    cpPickUp(level, e, s);
+    var bag = cpBag(s);
+
+    // ближайшее спелое (проверяем самые ближние два десятка)
+    var near = [];
+    for (var pk in sc.plots) {
+        if (sc.plots[pk] === "лоза") continue;
+        var p = cpPosOf(pk);
+        if (Math.pow(p.x - b.x, 2) + Math.pow(p.z - b.z, 2) > CP_WORK_R * CP_WORK_R) continue;
+        near.push({ pk: pk, p: p, d: Math.pow(p.x - here.x, 2) + Math.pow(p.z - here.z, 2) });
+    }
+    near.sort((x, y) => x.d - y.d);
+    var ripe = null;
+    // проверяем до CP_RIPE_LOOK ближайших: при тысяче грядок спелые часто дальше двух десятков ближних,
+    // и он, не найдя их, нёс в хранилище одну-единственную стопку (29.10.2026)
+    for (var i = 0; i < near.length && i < CP_RIPE_LOOK && !ripe; i++) {
+        if (!cpLoadedAt(level, near[i].p.x, near[i].p.z) || cpBad(e, near[i].pk, now)) continue;
+        var r = cpRipe(level, near[i].p, sc.plots[near[i].pk]);
+        if (r === null) { delete sc.plots[near[i].pk]; continue }
+        if (r) ripe = near[i];
+    }
+    s.comp.ripeSeen = !!ripe;
+    // для журнала: сколько спелого и неспелого среди ближайших, по блокам
+    if (!s.comp.seenAt || now - s.comp.seenAt > 1200) {
+        s.comp.seenAt = now;
+        var tally = {};
+        for (var ti = 0; ti < near.length && ti < CP_RIPE_LOOK; ti++) {
+            try {
+                var tb = level.getBlock(near[ti].p.x, near[ti].p.y, near[ti].p.z);
+                var tid = String(tb.id).replace(/^[a-z_]+:/, "");
+                var rr = cpRipe(level, near[ti].p, sc.plots[near[ti].pk]);
+                var key = tid + (rr ? "+" : rr === false ? "-" : "?");
+                if (!tally[tid]) tally[tid] = { ripe: 0, green: 0, age: "" };
+                if (rr) tally[tid].ripe++; else tally[tid].green++;
+                if (!tally[tid].age) { try { var g9 = cpGrowth(level, near[ti].p); tally[tid].age = "стадия " + String(tb.properties.get("age")) + "/" + cpMaxAge(level.getBlockState(new CP_BlockPos(near[ti].p.x, near[ti].p.y, near[ti].p.z))) + ", рост " + (g9 === null ? "не читается" : g9.toFixed(2)) } catch (e9) { } }
+            } catch (e8) { }
+        }
+        s.comp.seen = Object.keys(tally).sort((x, y) => (tally[y].ripe + tally[y].green) - (tally[x].ripe + tally[x].green)).slice(0, 8)
+            .map(k => k + " " + tally[k].ripe + "/" + (tally[k].ripe + tally[k].green) + " (" + tally[k].age + ")").join(", ");
+    }
+
+    // нести: мешок полон, либо спелого нет, а в мешке что-то есть
+    if (bag.length && (bag.length >= CP_BAG_DELIVER || !ripe)) {
+        var list = cpStoreList(level, sc, here, 256).filter(a => !cpBad(e, a.pk, now));
+        var tgt = cpGrainTarget(list);
+        if (!tgt) { s.comp.job = { what: "некуда класть", at: now }; return }
+        var dd = Math.sqrt(Math.pow(tgt.x - here.x, 2) + Math.pow(tgt.z - here.z, 2));
+        if (dd > CP_REACH) {
+            if (!cpApproach(e, tgt.pk, dd, now)) { s.comp.job = { what: "не дойти до " + (tgt.name || tgt.pk) + " - беру другое", at: now }; return }
+            cpGo(e, tgt.x, tgt.y, tgt.z, 0.9); s.comp.job = { what: "несёт в " + (tgt.name || tgt.pk), at: now }; return
+        }
+        var put = cpBagDump(s, tgt.h);
+        s.comp.job = { what: "выложил " + put + " стопок в " + (tgt.name || tgt.pk), at: now };
+        try { global.TFG_SETTLERS.save() } catch (err) { }
+        return;
+    }
+    if (!ripe) {
+        // свободное время: ходит по базе от поля к полю (к случайной известной грядке), раз в десять секунд новая цель
+        if (!s.comp.stroll || now - s.comp.stroll.at > 200) {
+            var keys = Object.keys(sc.plots).filter(k => sc.plots[k] !== "лоза");
+            var to = keys.length ? cpPosOf(keys[Math.floor(Math.random() * keys.length)]) : { x: b.x + Math.floor((Math.random() - 0.5) * 48), y: b.y, z: b.z + Math.floor((Math.random() - 0.5) * 48) };
+            s.comp.stroll = { x: to.x, y: to.y, z: to.z, at: now };
+        }
+        cpGo(e, s.comp.stroll.x, s.comp.stroll.y, s.comp.stroll.z, 0.8);
+        s.comp.job = { what: "спелого нет - обходит поля", at: now };
+        return;
+    }
+    var d = Math.sqrt(ripe.d);
+    if (d > CP_REACH) {
+        if (!cpApproach(e, ripe.pk, d, now)) { s.comp.job = { what: "не дойти до грядки " + ripe.pk + " - беру другую", at: now }; return }
+        cpGo(e, ripe.p.x, ripe.p.y, ripe.p.z, 0.9); s.comp.job = { what: "идёт жать (" + Math.round(d) + " бл.)", at: now }; return
+    }
+    var kind = sc.plots[ripe.pk];
+    var done = kind === "грядка" ? cpReapCrop(level, s, ripe.p) : kind === "плод" ? cpReapFruit(level, s, ripe.p) : cpReapBush(level, s, ripe.p);
+    if (done && kind === "плод") delete sc.plots[ripe.pk];
+    var rid = "";
+    try { rid = String(level.getBlock(ripe.p.x, ripe.p.y, ripe.p.z).id) } catch (e7) { }
+    s.comp.job = { what: done ? "собрал: " + kind : "не вышло собрать: " + kind, at: now };
+    s.comp.last = (done ? "собрал " : "не собрал ") + ripe.pk + " " + rid;
+    if (done) { s.comp.reaped = (s.comp.reaped || 0) + 1; try { global.TFG_SETTLERS.save() } catch (err) { } }
+}
+
+// ─── Знать: продажа караванам ────────────────────────────────────────────────
+//
+// Знатный житель базы ПРОДАЁТ торговцу, пришедшему к базе, вещи из хранилища, где больше всего
+// монет (или из «Казны»), и из хранилищ «На продажу». Берёт дороже, чем мог бы игрок: игроку
+// торговец платит от 5 до 50% цены по отношениям (trade_menu.js, tmSellFactor), знатному - CP_NOBLE_SHARE.
+// Выручка - в то же хранилище. Каким видам торговцев нужен его товар, он запоминает (s.comp.wanted):
+// визиты к базе выбираются из них в первую очередь (guests.js, global.TFG_COMPANIONS.wantedKinds).
+
+var CP_NOBLE_SHARE = 0.6;      // какую долю цены торговец платит знатному
+var CP_DEAL_EVERY = 200;       // как часто знать продаёт по стопке (тиков)
+var CP_TRADER_R = 64;          // в каком радиусе от центра базы ищем торговца
+var CP_WANT_EVERY = 6000;      // как часто пересчитывает, кому нужен его товар
+
+var CP_DEAL_SAY = ["Продал. Дороже, чем ты бы сам выручил.", "Торговец кривился, но взял.",
+    "Деньги в казне. Пересчитай, если не веришь.", "С караванами надо уметь говорить."];
+
 /** Верифицированные монеты в хранилище: [{ slot, face, count }], сверху крупные. */
-function cpCoinsIn(store) {
+function cpCoinsIn(h) {
     var out = [];
     try {
-        for (var i = 0; i < store.h.getSlots(); i++) {
-            var st = store.h.getStackInSlot(i);
+        for (var i = 0; i < h.getSlots(); i++) {
+            var st = h.getStackInSlot(i);
             if (!st || st.isEmpty()) continue;
             var face = 0;
             try { face = Number(global.TFG_COINS.faceValue(st)); } catch (e) { face = 0 }
             if (face <= 0) continue;
             var ok = false;
             try { ok = !!global.TFG_COINS.isVerified(st); } catch (e) { ok = false }
-            if (!ok) continue;
-            out.push({ slot: i, face: face, count: st.getCount() });
+            if (ok) out.push({ slot: i, face: face, count: st.getCount() });
         }
     } catch (e) { return [] }
-    out.sort((a, b) => b.face - a.face);
     return out;
 }
-
-function cpCoinTotal(store) {
-    var sum = 0;
-    cpCoinsIn(store).forEach(c => { sum += c.face * c.count });
-    return sum;
-}
-
-/** Хранилище, где монет больше всего (или null). */
-function cpCoinStore(stores) {
-    var best = null, bestSum = 0;
-    stores.forEach(st => {
-        var sum = cpCoinTotal(st);
-        if (sum > bestSum) { bestSum = sum; best = st }
-    });
-    return best;
-}
+function cpCoinTotal(h) { var sum = 0; cpCoinsIn(h).forEach(c => { sum += c.face * c.count }); return sum }
+function cpIsCoin(st) { try { return !!global.TFG_COINS.isCoin(st) } catch (e) { return false } }
 
 /** Монета этого номинала, верифицированная. */
 function cpCoinStack(id, count) {
@@ -948,144 +1343,274 @@ function cpCoinStack(id, count) {
     return Item.of(id, count, { tfg_verified: true });
 }
 
-/** Выложить из сундука не меньше price; возвращает, сколько выложено (0 - не хватило). */
-function cpTakeCoins(store, price) {
-    var coins = cpCoinsIn(store), paid = 0;
-    for (var i = 0; i < coins.length && paid < price; i++) {
-        var c = coins[i];
-        for (var n = 0; n < c.count && paid < price; n++) {
-            var got = null;
-            try { got = store.h.extractItem(c.slot, 1, false) } catch (e) { got = null }
-            if (!got || got.isEmpty()) break;
-            paid += c.face;
-        }
-    }
-    return paid;
-}
-
-/** Сдачу - обратно в тот же сундук. */
-function cpChangeBack(store, amount) {
-    if (amount <= 0) return;
+/** Положить выручку монетами; что не влезло - вернуть суммой. */
+function cpPayInto(h, amount) {
     var parts = [];
-    try { parts = global.TFG_COINS.split(Math.round(amount)) } catch (e) { return }
-    parts.forEach(p => { cpPut(store, cpCoinStack(p.id, p.count)) });
+    try { parts = global.TFG_COINS.split(Math.round(amount)) } catch (e) { return amount }
+    var lost = 0;
+    parts.forEach(p => {
+        var rest = cpCoinStack(p.id, p.count);
+        try { for (var i = 0; i < h.getSlots() && !rest.isEmpty(); i++) rest = h.insertItem(i, rest, false) } catch (e) { }
+        if (!rest.isEmpty()) lost += rest.getCount() * (p.face || 1);
+    });
+    return lost;
 }
 
-/** Куда положить купленное: где больше свободных ячеек. */
-function cpRoomStore(stores) {
-    var best = null;
-    stores.forEach(st => { if (!best || st.free > best.free) best = st });
-    return best && best.free > 0 ? best : null;
+/** Торговец каравана у базы (не житель и не спутник). */
+function cpTraderNear(level, b) {
+    try {
+        var list = level.getEntitiesWithin(new CP_AABB(b.x - CP_TRADER_R, b.y - 32, b.z - CP_TRADER_R, b.x + CP_TRADER_R, b.y + 32, b.z + CP_TRADER_R));
+        for (var i = 0; i < list.size(); i++) {
+            var t = list.get(i);
+            if (!t || !t.isAlive()) continue;
+            var tg = t.getTags();
+            if (!tg.contains("tfg_trader") || tg.contains("tfg_companion") || tg.contains("tfg_settler")) continue;
+            if (!String(t.persistentData.getString("tfg_trader_kind"))) continue;
+            return t;
+        }
+    } catch (err) { }
+    return null;
 }
 
-/** Знать: сторговаться с караваном за монеты из самого богатого сундука. */
+/** Откуда продавать: хранилище с наибольшими деньгами (или «Казна») и все «На продажу». */
+function cpSaleStores(list) {
+    var ok = list.filter(a => a.tag !== "не трогать");
+    var purse = ok.filter(a => a.tag === "казна")[0] || null;
+    if (!purse) { var best = 0; ok.forEach(a => { var m = cpCoinTotal(a.h); if (m > best) { best = m; purse = a } }) }
+    var from = ok.filter(a => a.tag === "продажа");
+    if (purse && from.indexOf(purse) < 0) from.unshift(purse);
+    return { purse: purse, from: from };
+}
+
+/** Каким видам торговцев нужен товар знатного: [kindId], по убыванию выручки. */
+function cpWantedKinds(froms) {
+    var sum = {};
+    var kinds = [];
+    try { kinds = global.TFG_TRADE_GOODS.kinds.filter(k => k.goods && !k.special) } catch (e) { return [] }
+    froms.forEach(a => {
+        try {
+            for (var i = 0; i < a.h.getSlots(); i++) {
+                var st = a.h.getStackInSlot(i);
+                if (!st || st.isEmpty() || cpIsCoin(st)) continue;
+                kinds.forEach(k => {
+                    var p = 0;
+                    try { p = Number(global.TFG_TRADE_GOODS.sellPrice(k.id, st)) } catch (e) { p = 0 }
+                    if (p > 0) sum[k.id] = (sum[k.id] || 0) + p * st.getCount();
+                });
+            }
+        } catch (e) { }
+    });
+    return Object.keys(sum).sort((x, y) => sum[y] - sum[x]).slice(0, 4);
+}
+
+/** Знать: продать торговцу у базы стопку из своих хранилищ, выручку - в казну. */
 function cpWorkNoble(level, c, now) {
     var e = c.e, s = c.s, b = s.comp.base;
+    var sc = cpScanOf(b);
     if (now - Number(s.comp.dealAt || 0) < CP_DEAL_EVERY) return;
-
-    var trader = cpTraderNear(level, e, b);
-    if (!trader) return;
-
-    var stores = cpStores(level, s, b, now);
-    if (!stores.length) return;
-    var purse = cpCoinStore(stores);
-    if (!purse) {
-        s.comp.dealAt = now;
-        if (!s.comp.poorSaid) { s.comp.poorSaid = true; try { seVoice(e, cpPick(CP_DEAL_POOR)) } catch (err) { } }
-        return;
+    var list = cpStoreList(level, sc, b, 48);
+    var sale = cpSaleStores(list);
+    if (!s.comp.wantedAt || now - s.comp.wantedAt > CP_WANT_EVERY) {
+        s.comp.wanted = cpWantedKinds(sale.from);
+        s.comp.wantedAt = now;
     }
-    s.comp.poorSaid = false;
+    if (!sale.purse) { s.comp.job = { what: "нет хранилища с деньгами (или «Казна»)", at: now }; return }
+    var trader = cpTraderNear(level, b);
+    if (!trader) { s.comp.job = { what: "ждёт караван", at: now }; return }
+    var kind = String(trader.persistentData.getString("tfg_trader_kind"));
 
-    var offers = null;
-    try { offers = JSON.parse(String(trader.persistentData.getString("tfg_trader_offers"))) } catch (err) { return }
-    if (!offers || !offers.length) return;
-
-    // знать берёт самое дорогое из того, что по карману
-    var money = cpCoinTotal(purse), pick = -1;
-    for (var i = 0; i < offers.length; i++) {
-        var o = offers[i];
-        if (!o || !o.item || Number(o.stock) <= 0 || Number(o.price) <= 0) continue;
-        if (Number(o.price) > money) continue;
-        if (pick < 0 || Number(o.price) > Number(offers[pick].price)) pick = i;
+    // что из товара этому торговцу нужно
+    var pick = null;
+    for (var fi = 0; fi < sale.from.length && !pick; fi++) {
+        var a = sale.from[fi];
+        for (var i = 0; i < a.h.getSlots(); i++) {
+            var st = a.h.getStackInSlot(i);
+            if (!st || st.isEmpty() || cpIsCoin(st)) continue;
+            var unit = 0;
+            try { unit = Number(global.TFG_TRADE_GOODS.sellPrice(kind, st)) } catch (err) { unit = 0 }
+            if (unit > 0) { pick = { a: a, slot: i, unit: unit, count: st.getCount(), id: String(st.id) }; break }
+        }
     }
-    if (pick < 0) { s.comp.dealAt = now; return }
+    if (!pick) { s.comp.job = { what: "торговцу (" + kind + ") продать нечего", at: now }; s.comp.dealAt = now; return }
 
-    // подойти к торговцу; торгуемся, только когда дошли
-    var d2 = Math.pow(trader.getX() - e.getX(), 2) + Math.pow(trader.getZ() - e.getZ(), 2);
-    if (d2 > 12) {
-        try { e.getNavigation().moveTo(trader.getX(), trader.getY(), trader.getZ(), 0.9) } catch (err) { }
-        return;
-    }
+    var dd = Math.pow(trader.getX() - e.getX(), 2) + Math.pow(trader.getZ() - e.getZ(), 2);
+    if (dd > 16) { cpGo(e, trader.getX(), trader.getY(), trader.getZ(), 1.0); s.comp.job = { what: "идёт к торговцу", at: now }; return }
 
-    var offer = offers[pick], price = Math.round(Number(offer.price));
-    var room = cpRoomStore(stores);
-    if (!room) { s.comp.dealAt = now; return }
-
-    var paid = cpTakeCoins(purse, price);
-    if (paid < price) {                                   // не набралось - вернуть всё назад
-        cpChangeBack(purse, paid);
-        s.comp.dealAt = now;
-        return;
-    }
-
-    var goods = null;
-    try { goods = Item.of(String(offer.item), Math.max(1, Number(offer.count) || 1)) } catch (err) { goods = null }
-    if (!goods) { cpChangeBack(purse, paid); s.comp.dealAt = now; return }
-
-    var rest = cpPut(room, goods);
-    if (!rest.isEmpty()) {                                // не влезло - сделки не было
-        cpChangeBack(purse, paid);
-        s.comp.dealAt = now;
-        return;
-    }
-    cpChangeBack(purse, paid - price);
-
-    offer.stock = Number(offer.stock) - 1;
-    try { trader.persistentData.putString("tfg_trader_offers", JSON.stringify(offers)) } catch (err) { }
-
+    var got = null;
+    try { got = pick.a.h.extractItem(pick.slot, pick.count, false) } catch (err) { got = null }
+    if (!got || got.isEmpty()) { s.comp.dealAt = now; return }
+    var price = Math.max(1, Math.floor(pick.unit * got.getCount() * CP_NOBLE_SHARE));
+    var lost = cpPayInto(sale.purse.h, price);
+    if (lost > 0) cpPayInto(pick.a.h, lost);
     s.comp.dealAt = now;
+    s.comp.sold = (s.comp.sold || 0) + price;
+    s.comp.job = { what: "продал " + pick.id + " x" + got.getCount() + " за " + price, at: now };
     try { seVoice(e, cpPick(CP_DEAL_SAY)) } catch (err) { }
-    try { rlNote(c.v, { uuid: s.comp.owner, username: "?" }, s.id, 1, "сторговался с караваном") } catch (err) { }
-    cpLog(s.name + " купил " + offer.item + " x" + (offer.count || 1) + " за " + price + " (сдача " + (paid - price) + ")");
+    cpLog(s.name + " продал " + kind + " " + pick.id + " x" + got.getCount() + " за " + price + " медяков")
     try { global.TFG_SETTLERS.save() } catch (err) { }
 }
 
-/** Работа по сословию. Военные стерегут базу - это сделано отдельно, выше. */
+/** Виды торговцев, нужные знати этой базы игрока (для выбора визита в guests.js). */
+function cpWantedFor(pf) {
+    var out = [];
+    if (!pf || !pf.base) return out;
+    var vs = global.TFG_SETTLERS.list();
+    for (var vid in vs) vs[vid].settlers.forEach(s => {
+        if (!s.comp || s.dead || s.comp.mode !== "база" || !s.comp.base || !s.comp.wanted) return;
+        if (Math.pow(s.comp.base.x - pf.base.x, 2) + Math.pow(s.comp.base.z - pf.base.z, 2) > CP_WORK_R * CP_WORK_R) return;
+        s.comp.wanted.forEach(k => { if (out.indexOf(k) < 0) out.push(k) });
+    });
+    return out;
+}
+
+/** Сословие жителя с учётом переназначения командой (/tfgcomp сословие). */
+function cpEstate(s) {
+    if (s.estate) return s.estate;
+    try { return String(global.TFG_SETTLERS.estateOf(s)) } catch (e) { return "простолюдины" }
+}
+
+/** Работа по сословию. Военные стерегут базу - это сделано отдельно, в cpBaseStep. */
 function cpWork(level, c, now) {
     var s = c.s;
-    if (now % CP_WORK_EVERY >= 20) return;
-    var estate = "простолюдины";
-    try { estate = String(global.TFG_SETTLERS.estateOf(s)); } catch (e) { }
-    if (estate === "знать") cpWorkNoble(level, c, now);
-    else if (estate === "простолюдины") cpWorkPeasant(level, c, now);
+    // раз в минуту - в журнал, что видит и делает (то же, что /tfgcomp работа)
+    var wu = String(c.e.uuid);
+    if (!CP_SAID["w" + wu] || now - CP_SAID["w" + wu] > 1200) {
+        CP_SAID["w" + wu] = now;
+        try {
+            var sc0 = cpScanOf(s.comp.base), np = 0, nb = 0;
+            for (var pk0 in sc0.plots) { if (sc0.plots[pk0] === "лоза") continue; if (sc0.plots[pk0] === "куст") nb++; else np++ }
+            cpLog(s.name + " (" + cpEstate(s) + ", база): обход - чанков " + sc0.chunks + ", кругов " + sc0.sweeps + ", грядок и плодов " + np +
+                ", кустов " + nb + ", хранилищ " + Object.keys(sc0.stores).length + ", погребов " + Object.keys(sc0.stations || {}).length + cpCellarInfo(level, sc0) + (sc0.err ? " (сбой: " + sc0.err + ")" : "") + "; мешок " + cpBag(s).length + " стопок; шагов переносом " + cpStepped + "; сжато " + (s.comp.reaped || 0) +
+                "; сейчас: " + (s.comp.job ? s.comp.job.what : "ещё не начинал") +
+                (s.comp.last ? "; последнее: " + s.comp.last : "") + (s.comp.seen ? "; спелое рядом (спелых/всего): " + s.comp.seen : ""));
+        } catch (e0) { cpTickFail("журнал работы", e0, now) }
+    }
+    if (now % CP_WORK_EVERY < 10) { try { cpScanStep(level, s.comp.base, now) } catch (e) { cpTickFail("обход базы", e, now) } }
+    var estate = cpEstate(s);
+    if (estate === "знать") { if (now % 20 < 10) cpWorkNoble(level, c, now) }
+    else if (estate === "простолюдины") { if (now % 20 < 10) cpWorkPeasant(level, c, now) }
+}
+
+// ─── Бой ─────────────────────────────────────────────────────────────────────
+//
+// Своего боевого ИИ у жителей нет: злые цели кадавра с них сняты, и одно setTarget их драться
+// не заставляет. Бьются они тем же мозгом, что стража поселения и рейдеры (seFight ->
+// raidCombatTick в tfg/raids.js): держат дистанцию по оружию, стреляют из TACZ.
+// 29.10.2026 стража базы «ходила у башни и ничего не делала» - именно поэтому.
+
+const CP_GUARD_R = 44                   // стража базы гонит врага в стольких блоках от точки базы (как стража поселения)
+const CP_ESCORT_R = 24                  // спутник в дороге сам бьёт врага в стольких блоках от хозяина
+var CP_FOE = {}                         // uuid спутника -> враг, с которым он бьётся
+// твари Ice and Fire, на которых стража бросается всегда (горгона, василиск-кокатрис и прочие)
+const CP_IAF_FOES = /^iceandfire:(gorgon|cockatrice|troll|cyclops|siren|dread_|myrmex_(soldier|sentinel|royal|swarmer)|ghost|hydra)/
+// запасной список нечисти, если settlers.js не загружен (основной - SE_MONSTERS там)
+const CP_MONSTERS = ["minecraft:zombie", "minecraft:husk", "minecraft:drowned", "minecraft:skeleton", "minecraft:stray",
+    "minecraft:spider", "minecraft:cave_spider", "minecraft:creeper", "minecraft:witch", "minecraft:pillager",
+    "minecraft:vindicator", "minecraft:ravager"]
+
+/** Враг ли это: рейдер, бандит или нечисть - но не житель, не гость и не спутник. */
+function cpIsFoe(m) {
+    try {
+        if (!m || !m.isAlive()) return false
+        var t = m.getTags()
+        if (t.contains("tfg_npc") || t.contains("tfg_settler") || t.contains("tfg_companion")) return false
+        if (t.contains("tfg_raider") || t.contains("tfg_bandit") || t.contains("tfg_raid")) return true
+        var id = String(m.type)
+        if (CP_IAF_FOES.test(id) || id.indexOf("primitive_creatures:") === 0) return true
+        var mons = typeof SE_MONSTERS !== "undefined" ? SE_MONSTERS : CP_MONSTERS
+        return mons.indexOf(id) >= 0
+    } catch (err) { return false }
+}
+
+/** Ближайший враг в r блоках от точки (x, y, z). */
+function cpFoeNear(level, x, y, z, r) {
+    var best = null, bestD = r * r
+    try {
+        // по высоте - на 64 вверх и вниз: воздушный рейд висит на сотне блоков, десант спускается
+        var list = level.getEntitiesWithin(new CP_AABB(x - r, y - 64, z - r, x + r, y + 64, z + r))
+        for (var i = 0; i < list.size(); i++) {
+            var m = list.get(i)
+            if (!cpIsFoe(m)) continue
+            var d = Math.pow(m.getX() - x, 2) + Math.pow(m.getZ() - z, 2)
+            if (d < bestD) { bestD = d; best = m }
+        }
+    } catch (err) { }
+    return best
+}
+
+/** Вести бой с врагом: true - бьётся (движение задано). Врага нет или ушёл - false. */
+function cpFight(e, foe) {
+    // бьём любого живого, кроме своих: и врага с поля, и того, кто ударил хозяина (зверь, игрок)
+    try {
+        if (!foe || !foe.isAlive()) return false
+        var ft = foe.getTags()
+        if (ft.contains("tfg_settler") || ft.contains("tfg_companion")) return false
+    } catch (err) { return false }
+    var fighting = false
+    try { fighting = seFight(e, foe) } catch (err) { }
+    if (!fighting) {
+        try { e.getNavigation().moveTo(foe.getX(), foe.getY(), foe.getZ(), 1.4) } catch (err) { }
+    }
+    return true
 }
 
 function cpBaseStep(level, c, now) {
     var e = c.e, s = c.s, b = s.comp.base
+    var gu = String(e.uuid)
     if (!b) return
     // работа по сословию
     try { cpWork(level, c, now) } catch (err) { cpTickFail("работа на базе", err, now) }
     var dx = b.x - e.getX(), dz = b.z - e.getZ()
     // далеко от базы - домой; иначе бродит рядом
-    if (dx * dx + dz * dz > CP_BASE_R * CP_BASE_R * 4) { try { e.teleportTo(b.x + 0.5, b.y, b.z + 0.5) } catch (err) { } }
-    else if (now % 400 < 20) {
+    var busy = !!CP_FOE[gu]
+    var fighter = cpEstate(s) === "военные"
+    // стража держится у базы, работники ходят по всей её земле
+    var homeR = fighter ? CP_BASE_R * 2 : CP_WORK_R + 16
+    if (busy) { }
+    else if (dx * dx + dz * dz > homeR * homeR) { try { e.teleportTo(b.x + 0.5, b.y, b.z + 0.5) } catch (err) { } }
+    else if (fighter && now % 200 < 10) {
+        // дозор: новая точка вокруг базы раз в десять секунд
         try {
-            if (!(e.getTarget && e.getTarget())) e.getNavigation().moveTo(b.x + (Math.random() - 0.5) * CP_BASE_R, b.y, b.z + (Math.random() - 0.5) * CP_BASE_R, 0.8)
+            var px = b.x + (Math.random() - 0.5) * 48, pz = b.z + (Math.random() - 0.5) * 48
+            var py = b.y
+            try { py = Number(level.getHeight(CP_HEIGHT, Math.floor(px), Math.floor(pz))) } catch (err2) { }
+            e.getNavigation().moveTo(px, py, pz, 0.9)
         } catch (err) { }
     }
-    // воины стерегут базу
-    if (SE_FIGHTERS.indexOf(s.role) >= 0 && now % 40 < 20) {
-        try {
-            var list = level.getEntities()
-            for (var i = 0; i < list.size(); i++) {
-                var m = list.get(i)
-                if (!m || !m.isAlive() || String(m.getType().getCategory()) !== "MONSTER" || (m.getTags && m.getTags().contains("tfg_npc"))) continue
-                if (Math.pow(m.getX() - b.x, 2) + Math.pow(m.getZ() - b.z, 2) > CP_BASE_R * CP_BASE_R) continue
-                e.setTarget(m)
-                break
-            }
-        } catch (err) { }
+    // Стража: прежде всего хозяин (его обидчик, враг в 24 блоках от него, если он в 64 от спутника),
+    // потом база (враг в CP_GUARD_R блоках от её точки). Мирные сословия не дерутся - работают.
+    var guard = cpEstate(s) === "военные"
+    if (guard) {
+        var owner = null
+        try { owner = cpOwner(level.getServer(), s) } catch (err) { }
+        var od = owner && String(owner.level.getDimension()) === String(e.level.getDimension())
+            ? Math.sqrt(Math.pow(owner.getX() - e.getX(), 2) + Math.pow(owner.getZ() - e.getZ(), 2)) : 1e9
+        var foe = CP_FOE[gu]
+        try { if (foe && !foe.isAlive()) foe = null } catch (err) { foe = null }
+        if (foe && od > CP_RUN_FAR && Math.pow(foe.getX() - b.x, 2) + Math.pow(foe.getZ() - b.z, 2) > CP_GUARD_R * CP_GUARD_R * 2) foe = null
+        if (!foe && od <= CP_RUN_FAR) foe = cpFoeNear(level, owner.getX(), owner.getY(), owner.getZ(), CP_ESCORT_R)
+        if (!foe) foe = cpFoeNear(level, b.x, b.y, b.z, CP_GUARD_R)
+        if (foe && cpFight(e, foe)) CP_FOE[gu] = foe
+        else { delete CP_FOE[gu]; foe = null }
+        if (!CP_SAID[gu] || now - CP_SAID[gu] > 1200) {
+            CP_SAID[gu] = now
+            cpLog(s.name + " (стража базы): " + (foe ? "бьётся с " + String(foe.type) + " в " +
+                Math.round(Math.sqrt(Math.pow(foe.getX() - e.getX(), 2) + Math.pow(foe.getZ() - e.getZ(), 2))) + " бл." : "врагов нет, дозор") +
+                ", до базы " + Math.round(Math.sqrt(dx * dx + dz * dz)) + " бл." + (od < 1e8 ? ", до хозяина " + Math.round(od) + " бл." : ""))
+        }
     }
+    // реплика по делу, когда хозяин рядом: не чаще раза в CP_BASE_BARK_T
+    try {
+        var ow = cpOwner(level.getServer(), s)
+        if (ow && (!CP_BARK_AT[gu] || now - CP_BARK_AT[gu] > CP_BASE_BARK_T) && Math.random() < 0.2 &&
+            Math.pow(ow.getX() - e.getX(), 2) + Math.pow(ow.getZ() - e.getZ(), 2) < 16 * 16) {
+            CP_BARK_AT[gu] = now
+            var est = cpEstate(s)
+            var lines = est === "военные" ? (CP_FOE[gu] ? CP_BARK_FIGHT : CP_BARK_GUARD) : est === "знать" ? CP_BARK_NOBLE : CP_BARK_PEASANT
+            seVoice(e, cpPick(lines))
+            level.getServer().scheduleInTicks(100, () => { try { seRestoreSettlerName(e) } catch (err2) { } })
+        }
+    } catch (err) { }
     // еда: дважды в сутки (утром и вечером), не поел за сутки - голод; три дня голода - уходит
     var day = Math.floor(Number(level.getTime()) / CP_DAY), tod = Number(level.getDayTime()) % CP_DAY
     var meal = tod < 12000 ? 0 : 1
@@ -1093,7 +1618,7 @@ function cpBaseStep(level, c, now) {
     s.comp.meals = s.comp.meals || {}
     if (!s.comp.meals[meal] && tod % 12000 > 1000) {
         s.comp.meals[meal] = true
-        if (cpEat(level, b)) { s.comp.ate = (s.comp.ate || 0) + 1; s.comp.hungry = 0 }
+        if (cpEatScan(level, b) || cpEat(level, b)) { s.comp.ate = (s.comp.ate || 0) + 1; s.comp.hungry = 0 }
         try { global.TFG_SETTLERS.save() } catch (err) { }
     }
     if ((s.comp.hungry || 0) >= (s.comp.oath ? CP_OATH_HUNGER : CP_HUNGER_PLAIN)) {
@@ -1114,31 +1639,61 @@ function cpBaseStep(level, c, now) {
 function cpLostTick(server) {
     var level = server.overworld()
     var now = Number(server.tickCount)
-    server.players.forEach(p => {
-        cpMine(p).forEach(c => {
-            if (c.s.comp.mode !== "идёт") return
-            var key = c.v.id + "|" + c.s.id
-            try { if (String(p.level.getDimension()) !== "minecraft:overworld") return } catch (e0) { return }
-            if (cpEntity(level, c.v, c.s)) { delete CP_LOST[key]; return }
-            // Рядом с игроком нет - но он может быть жив дальше, в прогруженной земле (у поселения).
-            // Прежде тут сразу создавался новый, а старый делал его двойником, и новый тут же убирался:
-            // «догнал (появился рядом)» каждые 70 секунд. Теперь живого ищем по всему миру.
-            var far = cpAnywhere(level, c.v, c.s)
-            if (far) {
-                delete CP_LOST[key]
-                try { c.s.comp.euuid = String(far.uuid) } catch (e1) { }
-                if (now - (CP_SEEN_AT[String(far.uuid)] || 0) > CP_UNSEEN) {
-                    cpPlaceNear(level, p, far)
-                    cpLog(c.s.name + " был далеко от " + p.username + " - перенесён за спину")
+    // Игроков - списком сервера и обычным циклом: server.players.forEach здесь падал с
+    // NullPointerException (29.10.2026, каждые 70 секунд), и спутники так и не появлялись.
+    var players = []
+    try {
+        var pl = server.getPlayerList().getPlayers()
+        for (var pi = 0; pi < pl.size(); pi++) if (pl.get(pi)) players.push(pl.get(pi))
+    } catch (err) { cpTickFail("потерявшиеся: список игроков", err, now); return }
+    players.forEach(p => {
+        var mine = []
+        try { mine = cpMine(p) } catch (err) { cpTickFail("потерявшиеся: записи игрока", err, now); return }
+        mine.forEach(c => {
+            var stage = "начало"
+            try {
+                if (c.s.comp.mode !== "идёт") return
+                var key = c.v.id + "|" + c.s.id
+                stage = "мир игрока"
+                if (String(p.level.getDimension()) !== "minecraft:overworld") return
+                stage = "поиск рядом"
+                var near = cpEntity(level, c.v, c.s)
+                if (near) { delete CP_LOST[key]; return }
+                // Рядом с игроком нет - но он может быть жив дальше, в прогруженной земле (у поселения).
+                // Прежде тут сразу создавался новый, а старый делал его двойником, и новый тут же убирался:
+                // «догнал (появился рядом)» каждые 70 секунд. Теперь живого ищем по всему миру.
+                stage = "поиск по миру"
+                var far = cpAnywhere(level, c.v, c.s)
+                if (far) {
+                    delete CP_LOST[key]
+                    var fu = String(far.uuid)
+                    c.s.comp.euuid = fu
+                    if (now - (CP_SEEN_AT[fu] || 0) > CP_UNSEEN) {
+                        stage = "перенос дальнего"
+                        cpPlaceNear(level, p, far)
+                        cpLog(c.s.name + " был далеко от " + p.username + " - перенесён за спину")
+                    }
+                    return
                 }
-                return
-            }
-            if (!CP_LOST[key]) { CP_LOST[key] = now; return }
-            if (now - CP_LOST[key] < 1200) return
-            delete CP_LOST[key]
-            c.s.enterAt = cpBehind(p, 3)
-            delete c.s.comp.euuid                     // номер нового существа запишет его появление
-            try { seSpawnOne(c.v, c.s, level); cpLog(c.s.name + " догнал " + p.username + " (появился рядом)") } catch (e) { }
+                if (!CP_LOST[key]) { CP_LOST[key] = now; cpLog(c.s.name + ": в мире не найден - через минуту появится за спиной " + p.username); return }
+                if (now - CP_LOST[key] < 1200) return
+                delete CP_LOST[key]
+                stage = "точка за спиной"
+                var at = null
+                try { at = cpBehind(p, 3) } catch (err2) { at = null }
+                if (!at || !isFinite(at.x) || !isFinite(at.z)) at = { x: Math.floor(Number(p.getX())) + 2, z: Math.floor(Number(p.getZ())) + 2 }
+                c.s.enterAt = at
+                delete c.s.comp.euuid                     // номер нового существа запишет его появление
+                stage = "выпуск"
+                // отдельной задачей: сбой при появлении не должен ронять ход сервера и остальных спутников
+                var cv = c.v, cs = c.s, who = String(p.username)
+                server.scheduleInTicks(1, () => {
+                    try {
+                        seSpawnOne(cv, cs, level)
+                        cpLog(cs.name + " догнал " + who + " (появился за спиной, " + at.x + " " + at.z + ")")
+                    } catch (err3) { cpTickFail("потерявшиеся: выпуск", err3, now) }
+                })
+            } catch (err) { cpTickFail("потерявшиеся: " + stage, err, now) }
         })
     })
 }
@@ -1172,6 +1727,7 @@ EntityEvents.spawned(event => {
         if (s && s.comp) {
             try { if (e.isRemoved()) return } catch (err1) { }       // двойник, его только что убрали
             cpMark(e, true)
+            try { if (s.comp.immortal) e.addTag("tfg_immortal"); else e.removeTag("tfg_immortal") } catch (err3) { }
             if (s.comp.euuid !== String(e.uuid)) { s.comp.euuid = String(e.uuid); try { global.TFG_SETTLERS.save() } catch (err2) { } }
         }
     } catch (err) { }
@@ -1179,28 +1735,40 @@ EntityEvents.spawned(event => {
 
 // ─── Защита и бой ────────────────────────────────────────────────────────────
 
+/**
+ * Урон спутнику: true - отменить. Отмену зовём СНАРУЖИ try: event.cancel() бросает EventExit, и
+ * перехватчик его съедал - защита от падения, утопления и удара хозяина на деле не работала.
+ */
+function cpHurtCancel(victim, src) {
+    if (!(victim.getTags && victim.getTags().contains("tfg_companion"))) return false
+    if (victim.getTags().contains("tfg_immortal")) return true                 // /tfgcomp бессмертие
+    var type = String(src.getType ? src.getType() : src.type)
+    if (/fall|drown|inWall|in_wall|cramming/.test(type)) return true
+    var pl = src.player
+    if (pl) {
+        var c = cpAll(victim.level).filter(x => String(x.e.uuid) === String(victim.uuid))[0]
+        if (c && cpUuid(c.s.comp.owner) === cpUuid(pl.uuid)) return true
+    }
+    return false
+}
+
 EntityEvents.hurt(event => {
+    var cancel = false
+    try { cancel = cpHurtCancel(event.entity, event.source) } catch (err) { }
+    if (cancel) { event.cancel(); return }
     try {
         var victim = event.entity
         var src = event.source
-        // спутник: падение, утопление, удушье и удар хозяина - не ранят
-        if (victim.getTags && victim.getTags().contains("tfg_companion")) {
-            var type = String(src.getType ? src.getType() : src.type)
-            if (/fall|drown|inWall|in_wall|cramming/.test(type)) { event.cancel(); return }
-            var pl = src.player
-            if (pl) {
-                var c = cpAll(victim.level).filter(x => String(x.e.uuid) === String(victim.uuid))[0]
-                if (c && c.s.comp.owner === String(pl.uuid)) { event.cancel(); return }
-            }
-            return
-        }
+        if (victim.getTags && victim.getTags().contains("tfg_companion")) return
         // хозяина ударили - спутники на обидчика
         var attacker = src.actual || src.immediate
         if (victim.isPlayer && victim.isPlayer() && attacker && attacker.isLiving && attacker.isLiving()) {
             if (attacker.getTags && attacker.getTags().contains("tfg_companion")) return
             cpMine(victim).forEach(c => {
                 var e = cpEntity(victim.level, c.v, c.s)
-                if (e && c.s.comp.mode !== "база") { try { e.setTarget(attacker) } catch (err) { } }
+                if (!e) return
+                var near = Math.pow(e.getX() - victim.getX(), 2) + Math.pow(e.getZ() - victim.getZ(), 2) < CP_RUN_FAR * CP_RUN_FAR
+                if (c.s.comp.mode !== "база" || near) { CP_FOE[String(e.uuid)] = attacker; try { e.setTarget(attacker) } catch (err) { } }
             })
             return
         }
@@ -1209,7 +1777,7 @@ EntityEvents.hurt(event => {
         if (hitter && victim.isLiving && victim.isLiving() && !(victim.getTags && (victim.getTags().contains("tfg_settler") || victim.getTags().contains("tfg_companion")))) {
             cpMine(hitter).forEach(c => {
                 var e = cpEntity(victim.level, c.v, c.s)
-                if (e && c.s.comp.mode !== "база") { try { e.setTarget(victim) } catch (err) { } }
+                if (e && c.s.comp.mode !== "база") { CP_FOE[String(e.uuid)] = victim; try { e.setTarget(victim) } catch (err) { } }
             })
         }
     } catch (err) { }
@@ -1268,10 +1836,72 @@ ServerEvents.commandRegistry(event => {
             all.slice(0, 4).forEach(r => p.tell(Text.of("§8  " + r.s.name + " - хозяин " + cpUuid(r.s.comp.owner) + ", состояние " + r.s.comp.mode + (r.s.dead ? ", помечен погибшим" : ""))))
             return 1
         }
-        mine.forEach(c => p.tell(Text.of("§6• §7" + c.s.name + " (" + (c.s.role || "житель") + "): " + c.s.comp.mode +
-            (c.s.comp.base ? ", база " + c.s.comp.base.x + " " + c.s.comp.base.z + (c.s.comp.hungry ? ", голодает дней: " + c.s.comp.hungry : "") : ""))))
+        mine.forEach(c => {
+            var e = null
+            try { e = cpEntity(p.level, c.v, c.s) || cpAnywhere(p.level, c.v, c.s) } catch (err) { }
+            var where = e ? "в " + Math.round(Math.sqrt(Math.pow(e.getX() - p.getX(), 2) + Math.pow(e.getZ() - p.getZ(), 2))) + " бл. (" +
+                Math.round(e.getX()) + " " + Math.round(e.getY()) + " " + Math.round(e.getZ()) + ")" : "в мире не найден (появится за спиной в течение минуты)"
+            p.tell(Text.of("§6• §7" + c.s.name + " (" + (c.s.role || "житель") + "): " + c.s.comp.mode + ", " + where +
+                (c.s.comp.base ? ", база " + c.s.comp.base.x + " " + c.s.comp.base.z + (c.s.comp.hungry ? ", голодает дней: " + c.s.comp.hungry : "") : "")))
+        })
+        p.tell(Text.of("§8/tfgcomp сюда - привести их за спину сейчас"))
         return 1
-    }))
+    }).then(event.commands.literal("сюда").executes(ctx => {
+        var p = ctx.source.getPlayerOrException()
+        var level = p.level, n = 0
+        cpMine(p).forEach(c => {
+            if (c.s.comp.mode === "база") return
+            var e = null
+            try { e = cpEntity(level, c.v, c.s) || cpAnywhere(level, c.v, c.s) } catch (err) { }
+            if (e) {
+                try { if (String(e.level.getDimension()) !== String(level.getDimension())) e.teleportTo(level, p.getX(), p.getY(), p.getZ(), 0, 0) } catch (err) { }
+                cpPlaceNear(level, p, e)
+                c.s.comp.euuid = String(e.uuid)
+            } else {
+                c.s.enterAt = cpBehind(p, 3)
+                delete c.s.comp.euuid
+                try { seSpawnOne(c.v, c.s, level) } catch (err) { }
+            }
+            if (c.s.comp.mode === "ждёт") c.s.comp.mode = "идёт"
+            n++
+        })
+        try { global.TFG_SETTLERS.save() } catch (err) { }
+        p.tell(Text.of(n ? "§7Спутники рядом: " + n : "§7Спутников нет."))
+        cpLog("/tfgcomp сюда: " + p.username + ", приведено " + n)
+        return 1
+    })).then(cpEstateNode(event)).then(event.commands.literal("работа").executes(ctx => {
+        var p = ctx.source.getPlayerOrException()
+        var mine = cpMine(p)
+        if (!mine.length) { p.tell(Text.of("§7Спутников нет.")); return 1 }
+        mine.forEach(c => cpTellWork(p, c))
+        return 1
+    })).then(cpNewNode(event)).then(event.commands.literal("база").executes(ctx => {
+        var p = ctx.source.getPlayerOrException()
+        var c = cpTargetOf(p)
+        if (!c) { p.tell(Text.of("§7Смотри на своего спутника (до 8 блоков).")); return 1 }
+        var base = null
+        try { base = global.TFG_SETTLEMENTS.baseFor(p) } catch (err) { }
+        if (!base || typeof base.x !== "number") { p.tell(Text.of("§7Ты не на базе своей фракции.")); return 1 }
+        c.s.away = "база"; c.s.comp.mode = "база"
+        c.s.comp.base = { x: Math.floor(base.x), y: Math.floor(base.y || 70), z: Math.floor(base.z) }
+        try { c.s.comp.base.y = stTop(p.level, base.x, base.z) + 1 } catch (err) { }
+        try { global.TFG_SETTLERS.save() } catch (err) { }
+        p.tell(Text.of("§7" + c.s.name + " теперь живёт на базе (" + c.s.comp.base.x + " " + c.s.comp.base.z + ") и работает: " + cpEstate(c.s)))
+        return 1
+    })).then(event.commands.literal("бессмертие").executes(ctx => {
+        // включить или выключить бессмертие всем своим спутникам и жителям базы - для проверки в бою
+        var p = ctx.source.getPlayerOrException()
+        var mine = cpMine(p)
+        if (!mine.length) { p.tell(Text.of("§7Спутников нет.")); return 1 }
+        var on = !mine.some(c => !!c.s.comp.immortal)              // хоть один бессмертен - выключаем всем
+        // только отметка в записи: метку на само существо ставит ход спутников (cpFollowTick).
+        // Поиск существ по всему миру отсюда ронял команду («Произошла непредвиденная ошибка»).
+        for (var mi = 0; mi < mine.length; mi++) { mine[mi].s.comp.immortal = on; if (on) mine[mi].s.comp.heal = true }
+        try { global.TFG_SETTLERS.save() } catch (err) { }
+        p.tell(Text.of("§7Бессмертие спутников " + (on ? "§aвключено" : "§cвыключено") + "§7: " + mine.map(c => c.s.name).join(", ")))
+        cpLog("/tfgcomp бессмертие: " + p.username + " -> " + (on ? "вкл" : "выкл"))
+        return 1
+    })))
 })
 
 /**
@@ -1357,7 +1987,140 @@ ServerEvents.commandRegistry(event => {
         return 1
     }))
 })
-global.TFG_COMPANIONS = { mine: player => cpMine(player) }
+// ─── Отладочные команды: сословие, работа, новый спутник ─────────────────────
+
+var CP_ESTATE_ROLE = { "крестьянин": "крестьянин", "знать": "торговец", "военный": "рыцарь", "стрелок": "стрелок" }
+
+/** Свой спутник или житель базы, на которого смотрит игрок (до 8 блоков); иначе ближайший свой в 8 блоках. */
+function cpTargetOf(p) {
+    var mine = cpMine(p), best = null, bestDot = 0.9, near = null, nearD = 64
+    var look = cpLook(p)
+    mine.forEach(c => {
+        var e = null
+        try { e = cpEntity(p.level, c.v, c.s) } catch (err) { }
+        if (!e) return
+        var dx = e.getX() - p.getX(), dy = e.getY() + 1 - (p.getY() + 1.6), dz = e.getZ() - p.getZ()
+        var d = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        if (d > 8) return
+        if (d * d < nearD) { nearD = d * d; near = { e: e, v: c.v, s: c.s } }
+        if (look && d > 0.01) {
+            var dot = (dx * look.x + dy * look.y + dz * look.z) / d
+            if (dot > bestDot) { bestDot = dot; best = { e: e, v: c.v, s: c.s } }
+        }
+    })
+    return best || near
+}
+
+/** Перевести в сословие: роль, снаряжение по роли (существо выпускается заново на том же месте). null - удалось, иначе причина. */
+function cpSetEstate(level, c, what) {
+    var role = CP_ESTATE_ROLE[what]
+    if (!role) return "сословие: крестьянин, знать, военный или стрелок"
+    var s = c.s
+    if (s.role === "правитель") return "правителя не трогаем"
+    s.role = role
+    if (what === "знать") s.estate = "знать"; else delete s.estate
+    delete s.trade
+    delete s.comp.job
+    // снаряжение и подпись - по новой роли: убрать прежнее существо и выпустить заново на его месте
+    var e = c.e
+    try {
+        s.enterAt = { x: Math.floor(e.getX()), z: Math.floor(e.getZ()) }
+        delete s.comp.euuid
+        e.discard()
+        seSpawnOne(c.v, s, level)
+    } catch (err) { return "не вышло выпустить заново: " + err }
+    try { global.TFG_SETTLERS.save() } catch (err) { }
+    cpLog(s.name + ": сословие -> " + what + " (" + role + ")")
+    return null
+}
+
+/** Что делает житель базы: для /tfgcomp работа. */
+function cpTellWork(p, c) {
+    var s = c.s, est = cpEstate(s)
+    p.tell(Text.of("§6• §7" + s.name + " - " + est + " (" + s.role + "), " + s.comp.mode))
+    if (s.comp.mode !== "база" || !s.comp.base) { p.tell(Text.of("§8  не на базе: работы нет")); return }
+    var sc = cpScanOf(s.comp.base)
+    var plots = 0, bushes = 0
+    for (var pk in sc.plots) { if (sc.plots[pk] === "грядка" || sc.plots[pk] === "плод") plots++; else if (sc.plots[pk] !== "лоза") bushes++ }
+    var stores = Object.keys(sc.stores), named = stores.filter(k => sc.stores[k].tag).map(k => sc.stores[k].name + " (" + sc.stores[k].tag + ")")
+    p.tell(Text.of("§8  обход базы: чанков просмотрено " + sc.chunks + ", кругов " + sc.sweeps + "; грядок " + plots + ", кустов и деревьев " + bushes +
+        ", хранилищ " + stores.length + (named.length ? ", размечены: " + named.slice(0, 4).join(", ") : "")))
+    if (est === "простолюдины") {
+        p.tell(Text.of("§8  мешок: стопок " + cpBag(s).length + "/" + CP_BAG_MAX + ", вещей " + cpBagCount(s) + "; сжато всего " + (s.comp.reaped || 0) +
+            "; спелое рядом: " + (s.comp.ripeSeen ? "есть" : "нет")))
+    } else if (est === "знать") {
+        p.tell(Text.of("§8  выручено всего " + (s.comp.sold || 0) + " медяков; нужно торговцам: " + ((s.comp.wanted || []).join(", ") || "пока не считал")))
+    }
+    p.tell(Text.of("§8  сейчас: " + (s.comp.job ? s.comp.job.what : "ещё не начинал")))
+}
+
+/** Сразу сделать спутником жителя нужного сословия из ближайшего поселения - для проверки, без найма. */
+function cpNewCompanion(p, what) {
+    var want = what === "военный" || what === "стрелок" ? "военные" : what === "знать" ? "знать" : what === "крестьянин" ? "простолюдины" : null
+    if (!want) return "кого: крестьянин, знать, военный"
+    var vs = global.TFG_SETTLERS.list(), best = null, bestD = 1e18
+    for (var vid in vs) {
+        var v = vs[vid]
+        var d = Math.pow(v.x - p.getX(), 2) + Math.pow(v.z - p.getZ(), 2)
+        if (d >= bestD) continue
+        var free = v.settlers.filter(s => !s.dead && !s.away && !s.comp && s.role !== "правитель" && cpEstate(s) === want)
+        var pick = (want === "простолюдины" ? free.filter(s => s.role === "крестьянин")[0] : null) || free[0]
+        if (!pick && want === "знать") pick = v.settlers.filter(s => !s.dead && !s.away && !s.comp && s.role === "крестьянин")[0]
+        if (pick) { bestD = d; best = { v: v, s: pick } }
+    }
+    if (!best) return "в поселениях нет свободного жителя такого сословия"
+    var s = best.s
+    // прежнее тело (если стоит в поселении) - убрать: спутник появится у игрока
+    try { var old = cpAnywhere(p.level, best.v, s); if (old) old.discard() } catch (err) { }
+    s.away = "спутник"
+    s.comp = { owner: String(p.uuid), mode: "идёт", since: Math.floor(Number(p.level.getTime()) / CP_DAY), ate: 0, eatDay: -1, hungry: 0 }
+    if (want === "знать" && cpEstate(s) !== "знать") { s.role = "торговец"; s.estate = "знать"; delete s.trade }
+    if (want === "простолюдины" && s.role !== "крестьянин") { s.role = "крестьянин"; delete s.trade }
+    // игрок на базе - сразу житель базы (работать), иначе - спутник в дороге
+    var base = null
+    try { base = global.TFG_SETTLEMENTS.baseFor(p) } catch (err) { }
+    if (base && typeof base.x === "number") {
+        s.away = "база"; s.comp.mode = "база"
+        s.comp.base = { x: Math.floor(base.x), y: Math.floor(base.y || 70), z: Math.floor(base.z) }
+        try { s.comp.base.y = stTop(p.level, base.x, base.z) + 1 } catch (err) { }
+    }
+    s.enterAt = cpBehind(p, 3)
+    try { seSpawnOne(best.v, s, p.level) } catch (err) { return "не вышло выпустить: " + err }
+    try { global.TFG_SETTLERS.save() } catch (err) { }
+    cpLog("/tfgcomp новый: " + s.name + " (" + s.role + ", " + cpEstate(s) + ") из " + best.v.id + " - спутник " + p.username)
+    return s.name + " (" + s.role + ") из ближайшего поселения - " + (s.comp.mode === "база" ? "теперь живёт на твоей базе и работает" : "теперь твой спутник") + ", у тебя за спиной"
+}
+
+/** /tfgcomp сословие <крестьянин|знать|военный|стрелок> - словами-узлами: строковый аргумент кириллицу без кавычек не берёт. */
+function cpEstateNode(event) {
+    var node = event.commands.literal("сословие")
+    ;["крестьянин", "знать", "военный", "стрелок"].forEach(w => {
+        node = node.then(event.commands.literal(w).executes(ctx => {
+            var p = ctx.source.getPlayerOrException()
+            var c = cpTargetOf(p)
+            if (!c) { p.tell(Text.of("§7Смотри на своего спутника или жителя базы (до 8 блоков).")); return 1 }
+            var res = cpSetEstate(p.level, c, w)
+            p.tell(Text.of(res ? "§c" + res : "§7" + c.s.name + " теперь: " + w + " (" + c.s.role + ")"))
+            return 1
+        }))
+    })
+    return node
+}
+
+/** /tfgcomp новый <крестьянин|знать|военный> */
+function cpNewNode(event) {
+    var node = event.commands.literal("новый")
+    ;["крестьянин", "знать", "военный"].forEach(w => {
+        node = node.then(event.commands.literal(w).executes(ctx => {
+            var p = ctx.source.getPlayerOrException()
+            p.tell(Text.of("§7" + cpNewCompanion(p, w)))
+            return 1
+        }))
+    })
+    return node
+}
+
+global.TFG_COMPANIONS = { mine: player => cpMine(player), wantedKinds: pf => cpWantedFor(pf) }
 
 // ─── Цепочки разговоров со спутником ─────────────────────────────────────────
 //

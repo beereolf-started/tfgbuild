@@ -2147,8 +2147,12 @@ function gsCaravanEvent(pf, raidFaction, tierOverride) {
         return gsVisit(level, center, fac.id, null, tier, { raid: true, players: pf.members.slice() })
     }
     var kinds = global.TFG_TRADE_GOODS.kindsFor(tier).map(k => k.id)
+    // знать на базе продаёт хозяйское добро: те, кому оно нужно, прилетают в первую очередь (companions.js)
+    var wanted = []
+    try { wanted = (global.TFG_COMPANIONS.wantedKinds(pf) || []).filter(k => kinds.indexOf(k) >= 0) } catch (e) { }
     var roll = Math.random()
-    var kind = rep >= 75 && roll < 0.1 ? "appraiser" : roll < 0.2 ? "buyer" : roll < 0.3 ? "junk"
+    var kind = wanted.length && roll < 0.7 ? wanted[Math.floor(Math.random() * wanted.length)]
+        : rep >= 75 && roll < 0.1 ? "appraiser" : roll < 0.2 ? "buyer" : roll < 0.3 ? "junk"
         : kinds[Math.floor(Math.random() * kinds.length)]
     return gsVisit(level, center, fac.id, kind, tier, null)
 }

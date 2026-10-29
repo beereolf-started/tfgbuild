@@ -843,6 +843,24 @@ EntityEvents.death(event => {
 	delete RAID_HUSKS[String(e.uuid)]
 })
 
+// /reload обнуляет RAID_HUSKS, а живых рейдеров в него возвращало только появление (загрузка чанка):
+// весь рейд, бывший в мире во время /reload, рычал (29.10.2026). Раз в 5 секунд возвращаем пропавших.
+ServerEvents.tick(event => {
+	if (event.server.tickCount % 100 !== 50) return
+	try {
+		var all = event.server.overworld().getEntities()
+		for (var i = 0; i < all.size(); i++) {
+			var e = all.get(i)
+			if (!e || e.type !== RAID_HUSK) continue
+			var u = String(e.uuid)
+			if (RAID_HUSKS[u]) continue
+			var orig = raidTagValue(e, 'tfg_bandit_type:')
+			if (!orig) continue
+			RAID_HUSKS[u] = { e: e, sounds: RAID_BANDIT_SOUNDS[orig] || null }
+		}
+	} catch (err) { }
+})
+
 ServerEvents.tick(event => {
 	if (event.server.tickCount % 200 !== 0) return
 	for (var id in RAID_HUSKS) {

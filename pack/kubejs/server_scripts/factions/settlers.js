@@ -437,6 +437,7 @@ EntityEvents.death(event => {
 const SE_ESTATE = { "правитель": "знать", "рыцарь": "военные", "стрелок": "военные", "дружинник": "военные" }
 function seEstateOf(s) {
     if (!s) return "простолюдины"
+    if (s.estate) return s.estate                      // переназначено командой (/tfgcomp сословие)
     if (SE_ESTATE[s.role]) return SE_ESTATE[s.role]
     if (String(s.home || "").indexOf("особняк") === 0) return "знать"
     return "простолюдины"
@@ -1302,6 +1303,8 @@ function seTraderSetup(e) {
         var v = vid && seLoad().villages[vid]
         var rec = v && v.settlers.filter(x => x.id === sid)[0]
         if (!rec) return
+        // знатный житель базы - продавец хозяйского добра, своей лавки у него нет
+        if (rec.comp && rec.estate === "знать") { seRestoreSettlerName(e); return }
         if (!rec.trade) { rec.trade = seTradeKind(); seSave() }
         var pd = e.persistentData
         pd.putString("tfg_trader_kind", rec.trade)
@@ -1330,6 +1333,7 @@ function seEntities(level, village) {
             var e = list.get(i)
             if (!e || !e.getTags) continue
             if (!e.getTags().contains("tfg_v_" + village.id)) continue
+            if (e.getTags().contains("tfg_companion")) continue        // спутник и житель базы - не дело поселения
             out.push(e)
         }
     } catch (e) { seErr("поиск жителей", e) }
